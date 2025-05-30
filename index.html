@@ -10,9 +10,10 @@
     .controls label { margin-right: 1rem; }
     #output { margin-top: 1.5rem; }
     table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
-    th, td { border: 1px solid #ddd; padding: 0.5rem; }
-    th { background: #eee; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem; vertical-align: top; }
+    th { background: #eee; text-align: left; }
     #downloadBtn { margin-top: 0.5rem; }
+    ul { margin: 0; padding-left: 1.2rem; }
   </style>
 </head>
 <body>
@@ -26,7 +27,6 @@
   <button id="downloadBtn" style="display:none;">Download Summary CSV</button>
 
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
-  <script src="https://unpkg.com/compromise@13.11.3/builds/compromise.min.js"></script>
   <script>
     function sim(a, b) {
       if (a === b) return 1;
@@ -57,55 +57,45 @@
           const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
           const subs = data.filter(r => (r[revCol]||'').trim().split(/\s+/).length > minWords);
 
-          // extraction using NER + regex fallback
+          // extract guide names via regex patterns only
           const entries = subs.map(r => {
             const text = r[revCol];
             let name = null;
-            // NER first
-            const doc = nlp(text);
-            const people = doc.people().out('array');
-            if (people.length) {
-              for (const full of people[0].split(/\s+/)) {
-                if (/^[A-Z][a-z]+$/.test(full) && !stopwords.has(full.toLowerCase())) {
-                  name = full;
-                  break;
-                }
-              }
+            const patterns = [
+              /guide[s]?[,:\s]*([A-Z][a-z]+)/,
+              /our guide\s+([A-Z][a-z]+)/i,
+              /guide\s+was\s+([A-Z][a-z]+)/i
+            ];
+            for (const reg of patterns) {
+              const m = reg.exec(text);
+              if (m) { name = m[1]; break; }
             }
-            // regex fallback
-            if (!name) {
-              ['guide[s]?[,:\s]*([A-Z][a-z]+)', 'our guide\s+([A-Z][a-z]+)', 'guide\s+was\s+([A-Z][a-z]+)']
-              .forEach(pattern => {
-                if (!name) {
-                  const m = new RegExp(pattern, 'i').exec(text);
-                  if (m && /^[A-Z][a-z]+$/.test(m[1]) && !stopwords.has(m[1].toLowerCase())) {
-                    name = m[1];
-                  }
-                }
-              });
-            }
-            return name ? { text, guide: name } : null;
+            if (!name) return null;
+            const lower = name.toLowerCase();
+            if (stopwords.has(lower) || lower.length < 3) return null;
+            return { text, guide: name };
           }).filter(x => x);
 
-          // clustering
+          // fuzzy-cluster spelling variants
           const counts = {};
-          entries.forEach(x => counts[x.guide] = (counts[x.guide]||0)+1);
+          entries.forEach(x => counts[x.guide] = (counts[x.guide]||0) + 1);
           const names = Object.keys(counts).sort();
           const clusters = [];
           const labels = {};
           names.forEach(n => {
             let placed = false;
             for (const c of clusters) {
-              if (sim(n.toLowerCase(), c[0].toLowerCase()) >= threshold) { c.push(n); placed=true; break; }
+              if (sim(n.toLowerCase(), c[0].toLowerCase()) >= threshold) { c.push(n); placed = true; break; }
             }
             if (!placed) clusters.push([n]);
           });
           clusters.forEach(c => {
             const canon = c.reduce((a,b) => counts[a]>=counts[b]?a:b);
-            c.forEach(n => labels[n]=canon);
+            c.forEach(n => labels[n] = canon);
           });
           entries.forEach(x => x.canonical = labels[x.guide]);
 
+          // aggregate and sort by review count descending
           const agg = {};
           entries.forEach(x => {
             const c = x.canonical;
@@ -113,39 +103,47 @@
             agg[c].reviews.push(x.text);
             agg[c].count++;
           });
+          const sorted = Object.entries(agg).sort((a,b) => b[1].count - a[1].count);
 
           // highlights
-          const adjs = ['knowledgeable','excellent','interesting','informative','friendly','amazing',
-                        'fantastic','detailed','passionate','enthusiastic','attentive','professional',
-                        'engaging','dynamic','comprehensive','thorough','insightful','articulate',
-                        'patient','personable'];
-          Object.values(agg).forEach(g => {
+          const adjectives = ['knowledgeable','excellent','interesting','informative','friendly','amazing',
+                              'fantastic','detailed','passionate','enthusiastic','attentive','professional',
+                              'engaging','dynamic','comprehensive','thorough','insightful','articulate',
+                              'patient','personable'];
+          sorted.forEach(([guide,g]) => {
             const txt = g.reviews.join(' ').toLowerCase();
-            const found = adjs.filter(a => txt.includes(a));
-            if (found.length>1) g.highlights = 'Known for being ' + found.slice(0,-1).join(', ') + ' and ' + found.slice(-1) + '.';
-            else if (found.length===1) g.highlights = 'Known for being ' + found[0] + '.';
+            const found = adjectives.filter(a => txt.includes(a));
+            if (found.length > 1) g.highlights = 'Known for being ' + found.slice(0,-1).join(', ') + ' and ' + found.slice(-1) + '.';
+            else if (found.length === 1) g.highlights = 'Known for being ' + found[0] + '.';
             else g.highlights = g.reviews[0].split('. ')[0] + '.';
           });
 
-          // render
+          // render table
           const out = document.getElementById('output');
           out.innerHTML = '';
           const tbl = document.createElement('table');
           const hdr = document.createElement('tr');
-          ['Guide','Review Count','Highlights','Reviews'].forEach(h => { const th=document.createElement('th'); th.textContent=h; hdr.appendChild(th); });
+          ['Guide','Review Count','Highlights','Reviews'].forEach(h => { const th=document.createElement('th'); th.textContent = h; hdr.appendChild(th); });
           tbl.appendChild(hdr);
-          Object.entries(agg).forEach(([g,v]) => {
-            const tr=document.createElement('tr');
-            [g,v.count,v.highlights,v.reviews.join(' | ')].forEach(txt => { const td=document.createElement('td'); td.textContent=txt; tr.appendChild(td); });
+          sorted.forEach(([guide, g]) => {
+            const tr = document.createElement('tr');
+            const tdGuide = document.createElement('td'); tdGuide.textContent = guide; tr.appendChild(tdGuide);
+            const tdCount = document.createElement('td'); tdCount.textContent = g.count; tr.appendChild(tdCount);
+            const tdHigh = document.createElement('td'); tdHigh.textContent = g.highlights; tr.appendChild(tdHigh);
+            const tdRev = document.createElement('td');
+            const ul = document.createElement('ul');
+            g.reviews.forEach(rv => { const li = document.createElement('li'); li.textContent = rv; ul.appendChild(li); });
+            tdRev.appendChild(ul);
+            tr.appendChild(tdRev);
             tbl.appendChild(tr);
           });
           out.appendChild(tbl);
 
-          // download
+          // download CSV
           const rows = [['Guide','Review Count','Highlights','Reviews']];
-          Object.entries(agg).forEach(([g,v]) => rows.push([g,v.count,v.highlights,v.reviews.join(' | ')]));
+          sorted.forEach(([guide,g]) => rows.push([guide,g.count,g.highlights,g.reviews.join(' | ')]));
           const csv = Papa.unparse(rows);
-          const blob = new Blob([csv], {type:'text/csv'});
+          const blob = new Blob([csv], { type:'text/csv' });
           const url = URL.createObjectURL(blob);
           const btn = document.getElementById('downloadBtn');
           btn.style.display='inline-block';
