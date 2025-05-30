@@ -19,7 +19,7 @@
       padding: 0.8rem 1rem;
       width: 12rem;
       font-size: 1rem;
-      height: 2rem;          /* updated height */
+      height: 2rem;
       border: none;
       border-radius: 8px;
       margin-top: 8px;
@@ -27,7 +27,7 @@
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
       transition: box-shadow 0.2s;
     }
-    .controls button { background: #8000FF; color: #fff; border: none; height: auto; cursor: pointer; transition: background 0.2s; line-height: 2rem; }
+    .controls button { background: #8000FF; color: #fff; cursor: pointer; transition: background 0.2s; line-height: 2rem; }
     .controls button:hover { background: #6800D0; }
     table { border-collapse: collapse; width: 100%; background: #fff; }
     th, td { border: 1px solid #e0e0e0; padding: 0.8rem; vertical-align: top; text-align: left; }
@@ -35,7 +35,7 @@
     .header-content { display: inline-flex; align-items: center; }
     .chevron { margin-left: 0.3rem; font-size: 0.8rem; }
     ul { margin: 0; padding-left: 1rem; list-style: disc; }
-.header-image {
+    .header-image {
       position: absolute;
       top: 2.15rem;
       right: 3.5rem;
@@ -49,20 +49,20 @@
     <img src="./Headout-Logo-Light.png" alt="Logo" style="height:24px; margin-bottom:3rem; margin-right:1rem; vertical-align:middle;">
     <h1>Guide Sp<span class="highlight-o">o</span>tter</h1>
     <p class="subtitle">Automatically extract and aggregate <i>tour guide names</i> from your customer reviews.</p>
-     <div class="steps">
+    <div class="steps">
       <p>STEP 1: Download CSV file of any guided tour from <a href="https://main--lensheadout.netlify.app/" target="_blank">this link</a></p>
       <p>STEP 2: Upload the CSV in the field below.</p>
     </div>
     <img src="./gtimage.png" alt="Guide Visual" class="header-image" />
-</header>
+  </header>
   <div class="container">
     <div class="controls">
       <label>
-        Min words(don't change)
+        Min words (don't change)
         <input type="number" id="minWords" value="5" min="1" />
       </label>
       <label>
-        Similarity(don't change)
+        Similarity (don't change)
         <input type="number" id="simThreshold" value="0.8" min="0" max="1" step="0.05" />
       </label>
       <label>
@@ -87,13 +87,13 @@
 
       const negRegex = /\b(?:bad|poor|terrible|horrible|hate|worst|awful)\b/i;
       const stopwords = new Set([
-        'the','a','and','but','then','nice','good','what','how','i','it','is','was', 'awesome', 'both', 'meet', 'spoke',
-        'were','are','to','of','in','that','this','for','with','you','on','as','they', 'en', 'audio', 'white',
-        'be','at','or','an','by','have','from','my','your','their','if','so','no', 'un', 'che', 'queen', 'roman',
-        'not','all','just','do','does','did','had','he','she','we','our','us','me', 'la', 'ol', 'enjoyed', 'find', 
-        'his','her','them','tour','pope','guide','basilica','museum','chapel','vatican','city', 'outstanding',
+        'the','a','and','but','then','nice','good','what','how','i','it','is','was','awesome','both','meet','spoke',
+        'were','are','to','of','in','that','this','for','with','you','on','as','they','en','audio','white',
+        'be','at','or','an','by','have','from','my','your','their','if','so','no','un','che','queen','roman',
+        'not','all','just','do','does','did','had','he','she','we','our','us','me','la','ol','enjoyed','find',
+        'his','her','them','tour','pope','guide','basilica','museum','chapel','vatican','city','outstanding',
         'knowledgeable','professional','friendly','engaging','informative','attentive','enthusiastic','passionate','detailed','insightful',
-        'st','peter','peters','st peters', 'amazing', 'great', 'excellent', 'st peter','st peter\'s', 'queen\'s'
+        'st','peter','peters','st peters','amazing','great','excellent','st peter','st peter\'s','queen\'s'
       ]);
 
       function sim(a, b) {
@@ -122,40 +122,152 @@
         ['Guide','Review Count','Intro','Reviews'].forEach(h => {
           const th = document.createElement('th');
           if (h === 'Review Count') {
-            const span = document.createElement('span'); span.className='header-content'; span.textContent=h;
-            const chevron = document.createElement('span'); chevron.className='chevron'; chevron.textContent=sortDesc?'▼':'▲';
+            const span = document.createElement('span');
+            span.className = 'header-content';
+            span.textContent = h;
+            const chevron = document.createElement('span');
+            chevron.className = 'chevron';
+            chevron.textContent = sortDesc ? '▼' : '▲';
             span.appendChild(chevron);
-            span.addEventListener('click',()=>{sortDesc=!sortDesc;renderTable(entries);}); th.appendChild(span);
-          } else th.textContent = h;
+            span.addEventListener('click', () => { sortDesc = !sortDesc; renderTable(entries); });
+            th.appendChild(span);
+          } else {
+            th.textContent = h;
+          }
           headerRow.appendChild(th);
-        }); table.appendChild(headerRow);
-        sorted.forEach(o=>{
-          const tr=document.createElement('tr'); ['guide','count','intro','reviews'].forEach(key=>{
-            const td=document.createElement('td');
-            if(key==='reviews'){
-              const ul=document.createElement('ul'); o.reviews.forEach(r=>{const li=document.createElement('li');li.textContent=String(r);ul.appendChild(li);}); td.appendChild(ul);
-            } else td.textContent=String(o[key]); tr.appendChild(td);
-          }); table.appendChild(tr);
         });
-        downloadBtn.style.display='inline-block';
-        const rows=[['Guide','Review Count','Intro','Reviews']];
-        sorted.forEach(o=>rows.push([o.guide,o.count,o.intro,o.reviews.map(r=>String(r)).join(' | ')]));
-        const csv=Papa.unparse(rows), blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob);
-        downloadBtn.onclick=()=>{const a=document.createElement('a');a.href=url;a.download='guide_review_summary.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);} ;
+        table.appendChild(headerRow);
+
+        sorted.forEach(o => {
+          const tr = document.createElement('tr');
+          ['guide','count','intro','reviews'].forEach(key => {
+            const td = document.createElement('td');
+            if (key === 'reviews') {
+              const ul = document.createElement('ul');
+              o.reviews.forEach(r => {
+                const li = document.createElement('li');
+                li.textContent = String(r);
+                ul.appendChild(li);
+              });
+              td.appendChild(ul);
+            } else {
+              td.textContent = String(o[key]);
+            }
+            tr.appendChild(td);
+          });
+          table.appendChild(tr);
+        });
+
+        downloadBtn.style.display = 'inline-block';
+        const rows = [['Guide','Review Count','Intro','Reviews']];
+        sorted.forEach(o => rows.push([o.guide, o.count, o.intro, o.reviews.join(' | ')]));
+        const csv = Papa.unparse(rows);
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        downloadBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'guide_review_summary.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        };
+
         outputDiv.appendChild(table);
       }
 
       function processFile(file) {
-        const minWords=parseInt(minWordsInput.value,10), threshold=parseFloat(thresholdInput.value);
-        Papa.parse(file,{header:true,skipEmptyLines:true,complete:({data,meta})=>{
-          const revCol=meta.fields.find(f=>/review/i.test(f))||meta.fields[0]; let subs=data.filter(r=>{const txt=(r[revCol]||'').trim();return txt.split(/\s+/).length>=minWords&&!negRegex.test(txt);}); subs.unshift({[revCol]:revCol}); const groups={};
-          subs.forEach(r=>{const text=r[revCol];let name='';const people=nlp(text).people().out('array');if(people.length)name=normalizeName(people[0]);if(!name){const m=text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Za-z][A-Za-z-]+)/);if(m)name=normalizeName(m[1]);}if(!name){const m=text.match(/([A-Za-z][A-Za-z-]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);if(m)name=normalizeName(m[1]);}if(!name){const m=text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Za-z][A-Za-z-]+)/);if(m)name=normalizeName(m[1]);}name=name.toLowerCase();if(!name||stopwords.has(name))return;const key=name.charAt(0).toUpperCase()+name.slice(1);groups[key]=groups[key]||[];groups[key].push(text);});
-          const clusters=[];Object.keys(groups).sort().forEach(n=>{let placed=false;for(const c of clusters){if(n===c[0]||sim(n.toLowerCase(),c[0].toLowerCase())>=threshold){c.push(n);placed=true;break;}}if(!placed)clusters.push([n]);});
-          const entries=clusters.map(cluster=>{const canon=cluster[0],reviews=cluster.flatMap(n=>groups[n]),txt=reviews.join(' ').toLowerCase(),adjs=['knowledgeable','professional','friendly','engaging','informative','attentive','enthusiastic','passionate','detailed','insightful'],found=adjs.filter(a=>txt.includes(a)),intro=found.length>1?`${canon} is known for being ${found.slice(0,-1).join(', ')} and ${found.slice(-1)}.`:found.length===1?`${canon} is known for being ${found[0]}.`:reviews.length?reviews[0].split('. ')[0]+'.':'';return{guide:canon,count:reviews.length,intro,reviews};});
-          renderTable(entries);
-        }});
+        const minWords = parseInt(minWordsInput.value, 10);
+        const threshold = parseFloat(thresholdInput.value);
+
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: ({ data, meta }) => {
+            const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
+            let subs = data.filter(r => {
+              const txt = (r[revCol] || '').trim();
+              return txt.split(/\s+/).length >= minWords && !negRegex.test(txt);
+            });
+            subs.unshift({ [revCol]: revCol });
+
+            const groups = {};
+            subs.forEach(r => {
+              const text = r[revCol];
+              let rawName = "";
+
+              // 1) try compromise
+              const people = nlp(text).people().out('array');
+              if (people.length) rawName = normalizeName(people[0]);
+
+              // 2) fallback: Mr/Ms/Dr regex
+              if (!rawName) {
+                const m = text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Za-z][A-Za-z-]+)/);
+                if (m) rawName = normalizeName(m[1]);
+              }
+
+              // 3) fallback: "Alice our guide"
+              if (!rawName) {
+                let m = text.match(/([A-Za-z][A-Za-z-]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
+                if (m) rawName = normalizeName(m[1]);
+              }
+              if (!rawName) {
+                let m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Za-z][A-Za-z-]+)/);
+                if (m) rawName = normalizeName(m[1]);
+              }
+
+              // Only accept proper-nouns (start with uppercase A–Z)
+              if (!rawName || !/^[A-Z]/.test(rawName)) return;
+
+              const name = rawName.toLowerCase();
+              if (stopwords.has(name)) return;
+
+              const key = rawName; // preserve capitalization
+              groups[key] = groups[key] || [];
+              groups[key].push(text);
+            });
+
+            // cluster similar names
+            const clusters = [];
+            Object.keys(groups).sort().forEach(n => {
+              let placed = false;
+              for (const c of clusters) {
+                if (n === c[0] || sim(n.toLowerCase(), c[0].toLowerCase()) >= threshold) {
+                  c.push(n);
+                  placed = true;
+                  break;
+                }
+              }
+              if (!placed) clusters.push([n]);
+            });
+
+            const entries = clusters.map(cluster => {
+              const canon = cluster[0];
+              const reviews = cluster.flatMap(n => groups[n]);
+              const txt = reviews.join(' ').toLowerCase();
+              const adjs = ['knowledgeable','professional','friendly','engaging','informative','attentive','enthusiastic','passionate','detailed','insightful'];
+              const found = adjs.filter(a => txt.includes(a));
+              const intro = found.length > 1
+                ? `${canon} is known for being ${found.slice(0, -1).join(', ')} and ${found.slice(-1)}.`
+                : found.length === 1
+                  ? `${canon} is known for being ${found[0]}.`
+                  : reviews.length
+                    ? reviews[0].split('. ')[0] + '.'
+                    : '';
+              return { guide: canon, count: reviews.length, intro, reviews };
+            });
+
+            renderTable(entries);
+          }
+        });
       }
-      fileInput.addEventListener('change',e=>processFile(e.target.files[0]));[minWordsInput,thresholdInput].forEach(el=>el.addEventListener('change',()=>fileInput.files[0]&&processFile(fileInput.files[0])));
+
+      fileInput.addEventListener('change', e => processFile(e.target.files[0]));
+      [minWordsInput, thresholdInput].forEach(el =>
+        el.addEventListener('change', () => {
+          if (fileInput.files[0]) processFile(fileInput.files[0]);
+        })
+      );
     });
   </script>
 </body>
