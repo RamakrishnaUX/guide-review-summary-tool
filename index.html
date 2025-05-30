@@ -49,13 +49,13 @@
   <!-- updated script -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const fileInput       = document.getElementById('fileInput');
-      const minWordsInput   = document.getElementById('minWords');
-      const thresholdInput  = document.getElementById('simThreshold');
-      const outputDiv       = document.getElementById('output');
-      const downloadBtn     = document.getElementById('downloadBtn');
-      let currentEntries    = [];
-      let sortDesc          = true;
+      const fileInput      = document.getElementById('fileInput');
+      const minWordsInput  = document.getElementById('minWords');
+      const thresholdInput = document.getElementById('simThreshold');
+      const outputDiv      = document.getElementById('output');
+      const downloadBtn    = document.getElementById('downloadBtn');
+      let currentEntries   = [];
+      let sortDesc         = true;
 
       function sim(a, b) {
         if (a === b) return 1;
@@ -75,7 +75,7 @@
 
       function renderTable(entries) {
         outputDiv.innerHTML = '';
-        const sorted = entries.slice().sort((a, b) =>
+        const sorted = entries.slice().sort((a,b) =>
           sortDesc ? b.count - a.count : a.count - b.count
         );
 
@@ -105,22 +105,25 @@
 
         sorted.forEach(o => {
           const tr = document.createElement('tr');
-          const tdG = document.createElement('td'); tdG.textContent = o.guide;
-          const tdC = document.createElement('td'); tdC.textContent = o.count;
-          const tdH = document.createElement('td'); tdH.textContent = o.highlights;
-          const tdR = document.createElement('td');
-          const ul  = document.createElement('ul');
-          o.reviews.forEach(rv => {
-            const li = document.createElement('li');
-            li.textContent = rv;
-            ul.appendChild(li);
+          ['guide','count','highlights','reviews'].forEach((key,i) => {
+            const td = document.createElement('td');
+            if (key === 'reviews') {
+              const ul = document.createElement('ul');
+              o.reviews.forEach(rv => {
+                const li = document.createElement('li');
+                li.textContent = rv;
+                ul.appendChild(li);
+              });
+              td.appendChild(ul);
+            } else {
+              td.textContent = o[key];
+            }
+            tr.appendChild(td);
           });
-          tdR.appendChild(ul);
-          [tdG, tdC, tdH, tdR].forEach(td => tr.appendChild(td));
           table.appendChild(tr);
         });
 
-        // CSV download setup
+        // CSV download
         const rows = [['Guide','Review Count','Highlights','Reviews']];
         sorted.forEach(o =>
           rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')])
@@ -159,34 +162,39 @@
               return true;
             });
 
-            // include the header itself once
+            // always include header row as a “dummy review”
             subs.unshift({ [revCol]: revCol });
 
-            // group reviews by extracted name
+            // group reviews by name
             const groups = {};
             subs.forEach(r => {
               const text = r[revCol];
-              let people  = nlp(text).people().out('array');
+              let people = nlp(text).people().out('array');
 
-              // fallback A: “Name our tour guide…”
+              // ── NEW FALLBACK #1 ──
+              // anywhere “Mr. Alberto” or “Mrs Smith” appears
+              if (!people.length) {
+                const m = text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Z][a-z]+)/);
+                if (m) people = [m[1]];
+              }
+              // fallback #2: “Name our tour guide…”
               if (!people.length) {
                 const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
                 if (m) people = [m[1]];
               }
-              // fallback B: “…guide Name”
+              // fallback #3: “…guide Name”
               if (!people.length) {
                 const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+(?:Mr\.?\s*)?([A-Z][a-z]+)/);
                 if (m) people = [m[1]];
               }
 
               if (!people.length) return;
-              // strip titles properly, then trim before splitting
+              // strip any remaining prefix titles, then trim
               let name = people[0]
-                .replace(/^(?:Mr|Ms|Mrs|Dr)\.?\s*/, '')
+                .replace(/^(?:Mr|Mrs|Ms|Dr)\.?\s*/, '')
                 .trim()
                 .split(/\s+/)[0];
 
-              // validate and skip stopwords
               if (!/^[A-Z][a-z]+(?:-[A-Z][a-z]+)?$/.test(name)) return;
               if (stopwords.has(name.toLowerCase()))      return;
 
@@ -194,7 +202,7 @@
             });
 
             // cluster similar names
-            const counts   = {};
+            const counts = {};
             Object.keys(groups).forEach(n => counts[n] = groups[n].length);
             const clusters = [];
             Object.keys(counts).sort().forEach(name => {
@@ -209,17 +217,17 @@
               if (!placed) clusters.push([name]);
             });
 
-            // build entries array
+            // build final entries
             currentEntries = clusters.map(cluster => {
-              const canon   = cluster.reduce((a, b) => counts[a] >= counts[b] ? a : b);
-              const reviews = cluster.flatMap(n => groups[n] || []);
+              const canon   = cluster.reduce((a,b) => counts[a]>=counts[b]?a:b);
+              const reviews = cluster.flatMap(n => groups[n]||[]);
               const highlights = (() => {
                 const txt = reviews.join(' ').toLowerCase();
-                const adjs = ['knowledgeable','excellent','interesting','informative','friendly','amazing','fantastic','detailed','passionate','enthusiastic','attentive','professional','engaging','dynamic','comprehensive','thorough','insightful','articulate','patient','personable'];
+                const adjs = ['knowledgeable','interesting','informative','friendly','detailed','passionate','enthusiastic','attentive','professional','engaging','dynamic','comprehensive','thorough','insightful','articulate','patient','personable'];
                 const found = adjs.filter(a => txt.includes(a));
-                if (found.length > 1) return 'Known for being ' + found.slice(0,-1).join(', ') + ' and ' + found.slice(-1) + '.';
-                if (found.length === 1) return 'Known for being ' + found[0] + '.';
-                return reviews[0].split('. ')[0] + '.';
+                if (found.length>1) return 'Known for being '+found.slice(0,-1).join(', ')+' and '+found.slice(-1)+'.';
+                if (found.length===1) return 'Known for being '+found[0]+'.';
+                return reviews[0].split('. ')[0]+'.';
               })();
               return { guide: canon, reviews, count: reviews.length, highlights };
             });
@@ -229,7 +237,7 @@
         });
       }
 
-      // wire up controls
+      // wire controls
       fileInput.addEventListener('change', e => processFile(e.target.files[0]));
       [minWordsInput, thresholdInput].forEach(el =>
         el.addEventListener('change', () => {
