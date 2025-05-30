@@ -21,12 +21,14 @@
 
   <!-- papaparse for CSV parsing -->
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+  <!-- compromise.js for NER-based name extraction -->
+  <script src="https://unpkg.com/compromise@latest/builds/compromise.min.js"></script>
   <script>
     // simple sequence matcher for fuzzy grouping
     function sim(a,b){
       if(a===b) return 1;
       let m=0, M=a.length, N=b.length, min=Math.min(M,N);
-      for(let i=0;i<min;i++) if(a[i]==b[i]) m++;
+      for(let i=0;i<min;i++) if(a[i]===b[i]) m++;
       return m/min;
     }
 
@@ -39,66 +41,62 @@
         skipEmptyLines: true,
         complete: ({data, meta})=>{
           // 1. identify review column
-          const revCol = meta.fields.find(f=>/review/i.test(f))||meta.fields[0];
+          const revCol = meta.fields.find(f=>/review/i.test(f)) || meta.fields[0];
           // 2. filter substantive (>5 words)
-          let subs = data.filter(r=>{
-            let t = (r[revCol]||'').trim();
+          let subs = data.filter(r=> {
+            const t = (r[revCol] || '').trim();
             return t.split(/\s+/).length > 5;
           });
-          // 3. extract guide names
-          subs = subs.map(r=>{
-            let t = r[revCol];
-            let name = null;
-            ;[
-              /guide[s]?[,:\s]*([A-Z][a-z]+)/,
-              /([A-Z][a-z]+)\s+our guide/,
-              /guide\s+was\s+([A-Z][a-z]+)/
-            ].some(reg=>{
-              const m = reg.exec(t);
-              if(m){ name=m[1]; return true; }
-            });
-            return name?{text:t,guide:name}:null;
-          }).filter(x=>x);
 
-          // 4. fuzzy-cluster spellings
+          // 3. extract guide names using compromise NER
+          subs = subs.map(r=>{
+            const text = r[revCol];
+            const doc = nlp(text);
+            const people = doc.people().out('array');
+            if(people.length === 0) return null;
+            // take first person name and its first token
+            const name = people[0].split(' ')[0];
+            return { text, guide: name };
+          }).filter(x => x);
+
+          // 4. fuzzy-cluster spelling variants
           const counts = {};
-          subs.forEach(x=>counts[x.guide]=(counts[x.guide]||0)+1);
+          subs.forEach(x=> counts[x.guide] = (counts[x.guide]||0) + 1);
           const names = Object.keys(counts).sort();
           const clusters = [], labels = {};
           names.forEach(n=>{
-            let found=false;
-            for(let c of clusters){
-              if(sim(n,c[0])>=0.8){ c.push(n); found=true; break; }
+            let placed = false;
+            for(const c of clusters){
+              if(sim(n.toLowerCase(), c[0].toLowerCase()) >= 0.8){ c.push(n); placed = true; break; }
             }
-            if(!found) clusters.push([n]);
+            if(!placed) clusters.push([n]);
           });
           clusters.forEach(cluster=>{
-            // pick most frequent as canonical
-            const canon = cluster.reduce((a,b)=>counts[a]>=counts[b]?a:b);
-            cluster.forEach(n=>labels[n]=canon);
+            const canonical = cluster.reduce((a,b)=> counts[a] >= counts[b] ? a : b);
+            cluster.forEach(n=> labels[n] = canonical);
           });
-          subs.forEach(x=>x.canonical=labels[x.guide]);
+          subs.forEach(x=> x.canonical = labels[x.guide]);
 
-          // 5. aggregate
+          // 5. aggregate reviews & counts
           const agg = {};
           subs.forEach(x=>{
             const c = x.canonical;
-            if(!agg[c]) agg[c]={reviews:[],count:0};
+            if(!agg[c]) agg[c] = { reviews: [], count: 0 };
             agg[c].reviews.push(x.text);
             agg[c].count++;
           });
 
-          // 6. highlights
-          const adjs = ['knowledgeable','friendly','helpful','terrific','phenomenal','amazing','excellent','great','smooth','informative','engaging'];
+          // 6. generate highlights
+          const adjectives = ['knowledgeable','friendly','helpful','terrific','phenomenal','amazing','excellent','great','smooth','informative','engaging'];
           Object.values(agg).forEach(g=>{
             const txt = g.reviews.join(' ').toLowerCase();
-            const found = adjs.filter(a=>txt.includes(a));
-            if(found.length>1) g.highlights = 'Known for being '+found.slice(0,-1).join(', ')+' and '+found.slice(-1)+'.';
-            else if(found.length===1) g.highlights = 'Known for being '+found[0]+'.';
-            else g.highlights = g.reviews[0].split('. ')[0]+'.';
+            const found = adjectives.filter(a=> txt.includes(a));
+            if(found.length > 1) g.highlights = 'Known for being ' + found.slice(0,-1).join(', ') + ' and ' + found.slice(-1) + '.';
+            else if(found.length === 1) g.highlights = 'Known for being ' + found[0] + '.';
+            else g.highlights = g.reviews[0].split('. ')[0] + '.';
           });
 
-          // render table
+          // 7. render table
           const out = document.getElementById('output');
           out.innerHTML = '';
           const tbl = document.createElement('table');
@@ -107,13 +105,9 @@
             const th = document.createElement('th'); th.textContent = h; hdr.appendChild(th);
           });
           tbl.appendChild(hdr);
-          Object.entries(agg).forEach(([guide,g])=>{
+          Object.entries(agg).forEach(([guide, g])=>{
             const tr = document.createElement('tr');
-            const makeCell = txt=>{
-              const td = document.createElement('td');
-              td.textContent = txt;
-              return td;
-            };
+            const makeCell = v=> { const td = document.createElement('td'); td.textContent = v; return td; };
             tr.appendChild(makeCell(guide));
             tr.appendChild(makeCell(g.count));
             tr.appendChild(makeCell(g.highlights));
@@ -122,25 +116,19 @@
           });
           out.appendChild(tbl);
 
-          // prepare CSV download
+          // 8. prepare CSV download
           const rows = [['Guide','Review Count','Highlights','Reviews']];
-          Object.entries(agg).forEach(([guide,g])=>{
-            rows.push([guide,g.count,JSON.stringify(g.highlights),JSON.stringify(g.reviews)]);
-          });
+          Object.entries(agg).forEach(([guide, g])=> rows.push([guide, g.count, g.highlights, g.reviews.join(' | ')]));
           const csv = Papa.unparse(rows);
-          const blob = new Blob([csv],{type:'text/csv'});
+          const blob = new Blob([csv], { type:'text/csv' });
           const url = URL.createObjectURL(blob);
           const btn = document.getElementById('downloadBtn');
-          btn.style.display='inline-block';
-          btn.onclick=()=>{ 
-            const a=document.createElement('a');
-            a.href=url; 
-            a.download='guide_review_summary.csv'; 
-            a.click();
-          };
+          btn.style.display = 'inline-block';
+          btn.onclick = ()=>{ const a = document.createElement('a'); a.href = url; a.download = 'guide_review_summary.csv'; a.click(); };
         }
       });
     });
   </script>
 </body>
 </html>
+
