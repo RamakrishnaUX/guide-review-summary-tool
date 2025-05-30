@@ -5,32 +5,21 @@
   <title>Guide Spotter</title>
   <style>
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f4f4f9; color: #333; }
-    header {
-      background: #6a1b9a;
-      color: #fff;
-      padding: 2rem 1.5rem;
-      text-align: left;
-    }
+    header { background: #6a1b9a; color: #fff; padding: 2rem 1.5rem; text-align: left; }
     header h1 { margin: 0; font-size: 2rem; }
-    header .subtitle { margin-top: 0.5rem; font-size: 1rem; color: #e0d7ed; line-height: 1.4; }
+    header .subtitle { margin-top: 0.5rem; font-size: 1rem; color: #e0d7ed; }
     .container { padding: 2rem 1.5rem; }
     .controls { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
     .controls label { font-size: 0.9rem; color: #555; display: flex; flex-direction: column; }
-    .controls input[type="number"], .controls input[type="file"], .controls button {
-      padding: 0.4rem 0.6rem; border: 1px solid #ccc; border-radius: 4px;
-      box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); font-size: 0.9rem;
-    }
-    .controls button {
-      background: #6a1b9a; color: #fff; border: none;
-      cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: background 0.2s;
-    }
+    .controls input, .controls button { padding: 0.4rem 0.6rem; font-size: 0.9rem; border: 1px solid #ccc; border-radius: 4px; }
+    .controls button { background: #6a1b9a; color: #fff; border: none; cursor: pointer; transition: background 0.2s; }
     .controls button:hover { background: #4a148c; }
-    table { border-collapse: collapse; width: 100%; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
-    th, td { border: 1px solid #e0e0e0; padding: 0.8rem; vertical-align: top; }
-    th { background: #f3e5f5; color: #4a148c; font-weight: 600; user-select: none; }
-    .header-content { display: inline-flex; align-items: center; cursor: pointer; white-space: nowrap; }
-    .chevron { margin-left: 0.4rem; font-size: 0.8rem; color: #6a1b9a; }
-    ul { margin: 0; padding-left: 1rem; list-style-type: disc; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border: 1px solid #e0e0e0; padding: 0.8rem; }
+    th { background: #f3e5f5; color: #4a148c; cursor: pointer; }
+    .header-content { display: inline-flex; align-items: center; }
+    .chevron { margin-left: 0.3rem; font-size: 0.8rem; }
+    ul { margin: 0; padding-left: 1rem; list-style: disc; }
   </style>
 </head>
 <body>
@@ -38,16 +27,18 @@
     <h1>Guide Spotter</h1>
     <p class="subtitle">Automatically extract and aggregate tour guide names from your customer reviews—see at a glance who’s getting the highest praise.</p>
   </header>
-
   <div class="container">
     <div class="controls">
-      <label>Min words per review
-        <input type="number" id="minWords" value="5" min="1" step="1" />
+      <label>
+        Min words per review
+        <input type="number" id="minWords" value="5" min="1" />
       </label>
-      <label>Similarity threshold
+      <label>
+        Similarity threshold
         <input type="number" id="simThreshold" value="0.8" min="0" max="1" step="0.05" />
       </label>
-      <label>Upload CSV
+      <label>
+        Upload CSV
         <input type="file" id="fileInput" accept=".csv" />
       </label>
       <button id="downloadBtn" style="display:none;">Download CSV</button>
@@ -72,153 +63,71 @@
         'were','are','to','of','in','that','this','for','with','you','on','as','they',
         'be','at','or','an','by','have','from','my','your','their','if','so','no',
         'not','all','just','do','does','did','had','he','she','we','our','us','me',
-        'his','her','them','st','peter','basilica','great','tour','excellent'
+        'his','her','them','tour','pope','guide','basilica','museum','chapel','vatican','city',
+        'knowledgeable','professional','friendly','engaging','informative','attentive','enthusiastic','passionate','detailed','insightful',
+        'st','peter','peters','st peters', 'amazing', 'great', 'excellent', 'st peter','st peter\'s'
       ]);
 
       function sim(a, b) {
         if (a === b) return 1;
-        let m = 0;
-        const len = Math.min(a.length, b.length);
+        let m = 0, len = Math.min(a.length, b.length);
         for (let i = 0; i < len; i++) if (a[i] === b[i]) m++;
         return m / len;
       }
 
       function normalizeName(raw) {
-        return raw
+        let name = raw
+          .replace(/\(.*?\)/g, '')
           .replace(/^(?:Mr|Mrs|Ms|Dr)\.?\s*/i, '')
+          .replace(/'s$/i, '')
+          .replace(/[^A-Za-z\s-]/g, '')
           .trim()
-          .split(/\s+/)[0];
+          .split(/\s+/)[0] || '';
+        return name;
       }
 
       function renderTable(entries) {
         outputDiv.innerHTML = '';
         const sorted = entries.slice().sort((a, b) => sortDesc ? b.count - a.count : a.count - b.count);
         const table = document.createElement('table');
-        const header = document.createElement('tr');
+        const headerRow = document.createElement('tr');
         ['Guide','Review Count','Intro','Reviews'].forEach(h => {
           const th = document.createElement('th');
           if (h === 'Review Count') {
-            const span = document.createElement('span');
-            span.className = 'header-content';
-            span.textContent = h;
-            const chevron = document.createElement('span');
-            chevron.className = 'chevron';
-            chevron.textContent = sortDesc ? '▼' : '▲';
+            const span = document.createElement('span'); span.className='header-content'; span.textContent=h;
+            const chevron = document.createElement('span'); chevron.className='chevron'; chevron.textContent=sortDesc?'▼':'▲';
             span.appendChild(chevron);
-            span.addEventListener('click', () => { sortDesc = !sortDesc; renderTable(entries); });
-            th.appendChild(span);
-          } else {
-            th.textContent = h;
-          }
-          header.appendChild(th);
+            span.addEventListener('click',()=>{sortDesc=!sortDesc;renderTable(entries);}); th.appendChild(span);
+          } else th.textContent = h;
+          headerRow.appendChild(th);
+        }); table.appendChild(headerRow);
+        sorted.forEach(o=>{
+          const tr=document.createElement('tr'); ['guide','count','intro','reviews'].forEach(key=>{
+            const td=document.createElement('td');
+            if(key==='reviews'){
+              const ul=document.createElement('ul'); o.reviews.forEach(r=>{const li=document.createElement('li');li.textContent=String(r);ul.appendChild(li);}); td.appendChild(ul);
+            } else td.textContent=String(o[key]); tr.appendChild(td);
+          }); table.appendChild(tr);
         });
-        table.appendChild(header);
-
-        sorted.forEach(o => {
-          const tr = document.createElement('tr');
-          ['guide','count','intro','reviews'].forEach(key => {
-            const td = document.createElement('td');
-            if (key === 'reviews') {
-              const ul = document.createElement('ul');
-              o.reviews.forEach(r => { const li = document.createElement('li'); li.textContent = r; ul.appendChild(li); });
-              td.appendChild(ul);
-            } else {
-              td.textContent = o[key];
-            }
-            tr.appendChild(td);
-          });
-          table.appendChild(tr);
-        });
-
-        // CSV download
-        downloadBtn.style.display = 'inline-block';
-        const rows = [['Guide','Review Count','Intro','Reviews']];
-        sorted.forEach(o => rows.push([o.guide, o.count, o.intro, o.reviews.join(' | ')]));
-        const csv = Papa.unparse(rows);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        downloadBtn.onclick = () => {
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'guide_review_summary.csv';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        };
-
+        downloadBtn.style.display='inline-block';
+        const rows=[['Guide','Review Count','Intro','Reviews']];
+        sorted.forEach(o=>rows.push([o.guide,o.count,o.intro,o.reviews.map(r=>String(r)).join(' | ')]));
+        const csv=Papa.unparse(rows), blob=new Blob([csv],{type:'text/csv'}), url=URL.createObjectURL(blob);
+        downloadBtn.onclick=()=>{const a=document.createElement('a');a.href=url;a.download='guide_review_summary.csv';document.body.appendChild(a);a.click();document.body.removeChild(a);} ;
         outputDiv.appendChild(table);
       }
 
       function processFile(file) {
-        const minWords = parseInt(minWordsInput.value, 10);
-        const threshold = parseFloat(thresholdInput.value);
-
-        Papa.parse(file, { header: true, skipEmptyLines: true, complete: ({ data, meta }) => {
-          const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
-          let subs = data.filter(r => {
-            const txt = (r[revCol] || '').trim();
-            return txt.split(/\s+/).length >= minWords && !negRegex.test(txt);
-          });
-          subs.unshift({ [revCol]: revCol });
-
-          const groups = {};
-          subs.forEach(r => {
-            const text = r[revCol];
-            let name;
-            const people = nlp(text).people().out('array');
-            if (people.length) name = normalizeName(people[0]);
-            if (!name) {
-              const m = text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Z][a-z]+)/);
-              if (m) name = normalizeName(m[1]);
-            }
-            if (!name) {
-              const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
-              if (m) name = normalizeName(m[1]);
-            }
-            if (!name) {
-              const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Z][a-z]+)/);
-              if (m) name = normalizeName(m[1]);
-            }
-            if (!name) return;
-            if (stopwords.has(name.toLowerCase())) return;
-            groups[name] = groups[name] || [];
-            groups[name].push(text);
-          });
-
-          const counts = {};
-          Object.keys(groups).forEach(n => counts[n] = groups[n].length);
-          const clusters = [];
-          Object.keys(counts).sort().forEach(n => {
-            let placed = false;
-            for (const c of clusters) {
-              if (n.toLowerCase() === c[0].toLowerCase() || sim(n.toLowerCase(), c[0].toLowerCase()) >= threshold) {
-                c.push(n);
-                placed = true;
-                break;
-              }
-            }
-            if (!placed) clusters.push([n]);
-          });
-
-          const entries = clusters.map(cluster => {
-            const canon = cluster[0];
-            const reviews = cluster.flatMap(n => groups[n]);
-            const txt = reviews.join(' ').toLowerCase();
-            const adjs = ['knowledgeable','professional','friendly','engaging','informative','attentive','enthusiastic','passionate','detailed','insightful'];
-            const found = adjs.filter(a => txt.includes(a));
-            let intro;
-            if (found.length > 1) intro = `${canon} is known for being ${found.slice(0, -1).join(', ')} and ${found.slice(-1)}.`;
-            else if (found.length === 1) intro = `${canon} is known for being ${found[0]}.`;
-            else intro = reviews.length ? reviews[0].split('. ')[0] + '.' : '';
-            return { guide: canon, count: reviews.length, intro, reviews };
-          });
-
+        const minWords=parseInt(minWordsInput.value,10), threshold=parseFloat(thresholdInput.value);
+        Papa.parse(file,{header:true,skipEmptyLines:true,complete:({data,meta})=>{
+          const revCol=meta.fields.find(f=>/review/i.test(f))||meta.fields[0]; let subs=data.filter(r=>{const txt=(r[revCol]||'').trim();return txt.split(/\s+/).length>=minWords&&!negRegex.test(txt);}); subs.unshift({[revCol]:revCol}); const groups={};
+          subs.forEach(r=>{const text=r[revCol];let name='';const people=nlp(text).people().out('array');if(people.length)name=normalizeName(people[0]);if(!name){const m=text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Za-z][A-Za-z-]+)/);if(m)name=normalizeName(m[1]);}if(!name){const m=text.match(/([A-Za-z][A-Za-z-]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);if(m)name=normalizeName(m[1]);}if(!name){const m=text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Za-z][A-Za-z-]+)/);if(m)name=normalizeName(m[1]);}name=name.toLowerCase();if(!name||stopwords.has(name))return;const key=name.charAt(0).toUpperCase()+name.slice(1);groups[key]=groups[key]||[];groups[key].push(text);});
+          const clusters=[];Object.keys(groups).sort().forEach(n=>{let placed=false;for(const c of clusters){if(n===c[0]||sim(n.toLowerCase(),c[0].toLowerCase())>=threshold){c.push(n);placed=true;break;}}if(!placed)clusters.push([n]);});
+          const entries=clusters.map(cluster=>{const canon=cluster[0],reviews=cluster.flatMap(n=>groups[n]),txt=reviews.join(' ').toLowerCase(),adjs=['knowledgeable','professional','friendly','engaging','informative','attentive','enthusiastic','passionate','detailed','insightful'],found=adjs.filter(a=>txt.includes(a)),intro=found.length>1?`${canon} is known for being ${found.slice(0,-1).join(', ')} and ${found.slice(-1)}.`:found.length===1?`${canon} is known for being ${found[0]}.`:reviews.length?reviews[0].split('. ')[0]+'.':'';return{guide:canon,count:reviews.length,intro,reviews};});
           renderTable(entries);
         }});
       }
-
-      fileInput.addEventListener('change', e => processFile(e.target.files[0]));
-      [minWordsInput, thresholdInput].forEach(el => el.addEventListener('change', () => fileInput.files[0] && processFile(fileInput.files[0])));
+      fileInput.addEventListener('change',e=>processFile(e.target.files[0]));[minWordsInput,thresholdInput].forEach(el=>el.addEventListener('change',()=>fileInput.files[0]&&processFile(fileInput.files[0])));
     });
   </script>
 </body>
