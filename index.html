@@ -4,185 +4,191 @@
   <meta charset="UTF-8">
   <title>Guide Review Summary Tool</title>
   <style>
-    body { font-family: sans-serif; padding: 2rem; background: #f9f9f9; }
-    h1 { color: #6a0dad; margin-bottom: 1rem; }
-    #fileInput { margin-bottom: 1rem; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
+    body { font-family: sans-serif; background: #f9f9f9; padding: 2rem; }
+    h1 { color: #6a0dad; margin-bottom: 0.5rem; }
+    p.instructions { color: #555; margin-top: 0; margin-bottom: 1rem; }
+    #fileInput { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
     #downloadBtn {
-      display: none;
-      background: #6a0dad;
-      color: white;
-      border: none;
-      padding: 0.6rem 1rem;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 1rem;
-      margin-bottom: 1rem;
+      margin-left: 1rem;
+      background: #6a0dad; color: white;
+      border: none; padding: 0.6rem 1rem;
+      border-radius: 4px; cursor: pointer;
+      font-size: 1rem; display: none;
     }
-    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-    th, td { border: 1px solid #ddd; padding: 0.6rem; }
+    #output { margin-top: 1.5rem; color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; background: white; }
+    th, td { border: 1px solid #ddd; padding: 0.6rem; text-align: left; }
     th { background: #eee; }
-    th.sortable { cursor: pointer; user-select: none; }
-    th .chevron { margin-left: 0.3rem; font-size: 0.8rem; vertical-align: middle; }
-    th, td { text-align: left; }
+    th.sortable { cursor: pointer; }
+    th .chevron { margin-left: 0.3rem; font-size: 0.8rem; user-select: none; }
     ul { margin: 0; padding-left: 1.2rem; }
+    .message { padding: 1rem; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 4px; color: #856404; }
   </style>
 </head>
 <body>
   <h1>Guide Review Summary Tool</h1>
+  <p class="instructions">Upload a CSV of your tour reviews to generate a guide-review summary.</p>
   <input type="file" id="fileInput" accept=".csv" />
   <button id="downloadBtn">Download Summary CSV</button>
-  <div id="output"></div>
+  <div id="output">No data yet. Please upload a CSV file.</div>
 
-  <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
+  <!-- Papaparse via jsDelivr -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
   <script>
-    // Utility: simple similarity
-    function sim(a,b){
-      if(a===b) return 1;
-      let m=0, M=a.length, N=b.length, min=Math.min(M,N);
-      for(let i=0;i<min;i++) if(a[i]===b[i]) m++;
-      return m/min;
-    }
-
-    let lastBlobUrl = null;
-    let lastAgg = null;
-    let sortAsc = false;
-
+  document.addEventListener('DOMContentLoaded', () => {
     const fileInput = document.getElementById('fileInput');
     const downloadBtn = document.getElementById('downloadBtn');
     const output = document.getElementById('output');
+    let dataAgg = null, lastBlobUrl = null, sortAsc = false;
+
+    function log(...args) { console.log('[GRT]', ...args); }
+
+    function simpleSim(a, b) {
+      if (a === b) return 1;
+      let matches = 0, min = Math.min(a.length, b.length);
+      for (let i = 0; i < min; i++) if (a[i] === b[i]) matches++;
+      return matches / min;
+    }
 
     fileInput.addEventListener('change', e => {
       const file = e.target.files[0];
       if (!file) return;
+      output.innerHTML = '<div class="message">Processing...</div>';
+      log('Uploaded file:', file.name);
 
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
+        error: (err) => {
+          log('Parse error:', err);
+          output.innerHTML = '<div class="message">Error parsing CSV: ' + err.message + '</div>';
+        },
         complete: ({ data, meta }) => {
-          // 1. detect review column
+          log('Parse complete, rows:', data.length, 'fields:', meta.fields);
+          // 1. review col
           const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
-          // 2. substantive filter
-          let subs = data.filter(r => {
-            const t = (r[revCol]||'').trim();
-            return t.split(/\s+/).length > 5;
-          });
-          // 3. extract guide names (captialized, not dictionary words)
-          const STOP = new Set([
-            'The','And','But','Then','What','How','Nice','Good','Very','Would','All','Didn\'t'
-          ]);
-          subs = subs.map(r => {
-            const t = r[revCol];
-            const pat = /guide[s]?[:,\s]*([A-Z][a-z]+)/g;
-            let name=null, m;
-            while((m = pat.exec(t))!==null){
-              if(!STOP.has(m[1])){ name=m[1]; break; }
+          log('Using review column:', revCol);
+          // 2. filter >5 words
+          let rows = data.filter(r => (r[revCol]||'').trim().split(/\s+/).length > 5);
+          log('Substantive reviews:', rows.length);
+          // 3. extract names
+          const STOP = new Set(['The','And','But','Then','What','How','Nice','Good','Very','Would','All',"Didn't"]);
+          let parsed = rows.map(r => {
+            const txt = r[revCol];
+            const patt = /guide[s]?[:,\s]*([A-Z][a-z]+)/g;
+            let match, name = null;
+            while ((match = patt.exec(txt)) !== null) {
+              if (!STOP.has(match[1])) { name = match[1]; break; }
             }
-            return name ? { text: t, guide: name } : null;
-          }).filter(x=>x);
+            return name && { guide: name, text: txt };
+          }).filter(x => x);
+          log('Extracted mentions:', parsed.map(x=>x.guide));
 
-          // 4. fuzzy cluster
+          if (parsed.length === 0) {
+            output.innerHTML = '<div class="message">No valid guide names found in your reviews.</div>';
+            downloadBtn.style.display = 'none';
+            return;
+          }
+
+          // 4. cluster
           const counts = {};
-          subs.forEach(x => counts[x.guide] = (counts[x.guide]||0)+1);
+          parsed.forEach(x => counts[x.guide] = (counts[x.guide]||0) + 1);
+          log('Name counts:', counts);
           const names = Object.keys(counts).sort();
           const clusters = [], labels = {};
           names.forEach(n => {
-            let found=false;
-            for(const c of clusters){
-              if(sim(n, c[0])>=0.8){ c.push(n); found=true; break; }
+            let placed = false;
+            for (const c of clusters) {
+              if (simpleSim(n, c[0]) >= 0.8) { c.push(n); placed = true; break; }
             }
-            if(!found) clusters.push([n]);
+            if (!placed) clusters.push([n]);
           });
-          clusters.forEach(cluster => {
-            const canon = cluster.reduce((a,b)=>counts[a]>=counts[b]?a:b);
-            cluster.forEach(n=> labels[n]=canon);
+          clusters.forEach(c => {
+            const canon = c.reduce((a,b) => counts[a]>=counts[b]?a:b);
+            c.forEach(n => labels[n] = canon);
           });
-          subs.forEach(x => x.canonical = labels[x.guide]);
+          parsed.forEach(x => x.canonical = labels[x.guide]);
+          log('Clusters:', clusters, 'Labels:', labels);
 
           // 5. aggregate
           const agg = {};
-          subs.forEach(x => {
+          parsed.forEach(x => {
             const c = x.canonical;
-            if(!agg[c]) agg[c] = { reviews: [], count: 0 };
+            if (!agg[c]) agg[c] = { reviews: [], count: 0 };
             agg[c].reviews.push(x.text);
             agg[c].count++;
           });
-          lastAgg = agg;
-
+          dataAgg = agg;
           renderTable();
           prepareDownload();
         }
       });
     });
 
-    function renderTable(){
-      const keys = Object.keys(lastAgg);
-      // sort by review count
-      keys.sort((a,b) => sortAsc
-        ? lastAgg[a].count - lastAgg[b].count
-        : lastAgg[b].count - lastAgg[a].count
+    function renderTable() {
+      const keys = Object.keys(dataAgg).sort((a,b) =>
+        sortAsc
+          ? dataAgg[a].count - dataAgg[b].count
+          : dataAgg[b].count - dataAgg[a].count
       );
-      // build HTML table
-      let html = '<table><thead><tr>';
-      html += '<th>Guide</th>';
-      html += `<th class="sortable" id="colCount">Review Count<span class="chevron">${sortAsc?'▲':'▼'}</span></th>`;
-      html += '<th>Highlights</th>';
-      html += '<th>Reviews</th>';
-      html += '</tr></thead><tbody>`;
+      const tbl = document.createElement('table');
+      const thead = tbl.createTHead(), hdrRow = thead.insertRow();
+      ['Guide','Review Count','Highlights','Reviews'].forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        if (h==='Review Count') {
+          th.classList.add('sortable');
+          const chevron = document.createElement('span');
+          chevron.className = 'chevron';
+          chevron.textContent = sortAsc ? '▲' : '▼';
+          th.appendChild(chevron);
+          th.addEventListener('click', () => {
+            sortAsc = !sortAsc;
+            renderTable();
+            prepareDownload();
+          });
+        }
+        hdrRow.appendChild(th);
+      });
+      const tbody = tbl.createTBody();
+      const adjectives = ['knowledgeable','friendly','helpful','terrific','phenomenal','amazing','excellent','great','smooth','informative','engaging'];
       keys.forEach(guide => {
-        const g = lastAgg[guide];
-        // generate highlights
-        const adjs = ['knowledgeable','friendly','helpful','terrific','phenomenal','amazing','excellent','great','smooth','informative','engaging'];
-        const txt = g.reviews.join(' ').toLowerCase();
-        const found = adjs.filter(a=>txt.includes(a));
-        const highlights = found.length
-          ? `Known for being ${ found.length>1
-                ? found.slice(0,-1).join(', ')+' and '+found.slice(-1)
-                : found[0]
-            }.`
-          : g.reviews[0].split('. ')[0]+'.';
-
-        html += '<tr>';
-        html += `<td>${guide}</td>`;
-        html += `<td>${g.count}</td>`;
-        html += `<td>${highlights}</td>`;
-        html += `<td><ul>${g.reviews.map(r=>'<'+'li>'+r+'</'+'li>').join('')}</ul></td>`;
-        html += '</tr>';
+        const info = dataAgg[guide];
+        const row = tbody.insertRow();
+        row.insertCell().textContent = guide;
+        row.insertCell().textContent = info.count;
+        // highlights
+        const txt = info.reviews.join(' ').toLowerCase();
+        const found = adjectives.filter(a=>txt.includes(a));
+        const hi = found.length
+          ? `Known for being ${found.length>1?found.slice(0,-1).join(', ')+' and '+found.slice(-1):found[0]}.`
+          : info.reviews[0].split('. ')[0]+'.';
+        row.insertCell().textContent = hi;
+        // reviews list
+        const cell = row.insertCell();
+        const ul = document.createElement('ul');
+        info.reviews.forEach(r=>{ const li=document.createElement('li'); li.textContent=r; ul.appendChild(li); });
+        cell.appendChild(ul);
       });
-      html += '</tbody></table>';
-      output.innerHTML = html;
-
-      // hook sort click
-      document.getElementById('colCount').addEventListener('click', () => {
-        sortAsc = !sortAsc;
-        renderTable();
-        prepareDownload(); // regenerate chevron
-      });
+      output.innerHTML = '';
+      output.appendChild(tbl);
     }
 
-    function prepareDownload(){
-      // teardown old blob
-      if(lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
-      // build CSV
+    function prepareDownload() {
+      if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl);
       const rows = [['Guide','Review Count','Highlights','Reviews']];
-      for(const guide in lastAgg){
-        const g = lastAgg[guide];
-        const adjs = []; // same logic as above
-        const txt = g.reviews.join(' ').toLowerCase();
-        // reuse adjs filter
-        const hon = ['knowledgeable','friendly','helpful','terrific','phenomenal','amazing','excellent','great','smooth','informative','engaging'];
-        const found = hon.filter(a=>txt.includes(a));
-        const highlights = found.length
-          ? `Known for being ${ found.length>1
-                ? found.slice(0,-1).join(', ')+' and '+found.slice(-1)
-                : found[0]
-            }.`
-          : g.reviews[0].split('. ')[0]+'.';
-        rows.push([ guide, g.count, highlights, `"${g.reviews.join(' | ')}"` ]);
-      }
+      Object.entries(dataAgg).forEach(([g,info])=>{
+        const txt = info.reviews.join(' ').toLowerCase();
+        const adjectives = ['knowledgeable','friendly','helpful','terrific','phenomenal','amazing','excellent','great','smooth','informative','engaging'];
+        const found = adjectives.filter(a=>txt.includes(a));
+        const hi = found.length
+          ? `Known for being ${found.length>1?found.slice(0,-1).join(', ')+' and '+found.slice(-1):found[0]}.`
+          : info.reviews[0].split('. ')[0]+'.';
+        rows.push([ g, info.count, hi, info.reviews.join(' | ') ]);
+      });
       const csv = Papa.unparse(rows);
-      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       lastBlobUrl = URL.createObjectURL(blob);
-
       downloadBtn.style.display = 'inline-block';
       downloadBtn.onclick = () => {
         const link = document.createElement('a');
@@ -193,6 +199,9 @@
         document.body.removeChild(link);
       };
     }
+
+    let lastBlobUrl = null;
+  });
   </script>
 </body>
 </html>
