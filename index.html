@@ -58,19 +58,46 @@
           const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
           const subs = data.filter(r => (r[revCol]||'').trim().split(/\s+/).length > minWords);
 
-          // 3. Extract guide names using NER only
+          // extract guide names via NER + regex context
           const entries = subs.map(r => {
             const text = r[revCol];
+            let name = null;
+            // Try NER-based detection
             const doc = nlp(text);
             const people = doc.people().out('array');
-            if (!people.length) return null;
-            // take first PERSON entity and its first token
-            const fullName = people[0];
-            const token = fullName.split(/\s+/).find(tok => /^[A-Z][a-z]+$/.test(tok) && !stopwords.has(tok.toLowerCase()));
-            return token ? { text, guide: token } : null;
+            for (const fullName of people) {
+              const tokens = fullName.split(/\s+/);
+              for (const tok of tokens) {
+                if (/^[A-Z][a-z]+$/.test(tok) && !stopwords.has(tok.toLowerCase())) {
+                  // Require context: must follow guide keywords
+                  const ctxRegex = new RegExp(`(?:guide[s]?[,:\\s]*|our guide\\s+|guide\\s+was\\s+)${tok}\\b`, 'i');
+                  if (ctxRegex.test(text)) {
+                    name = tok;
+                    break;
+                  }
+                }
+              }
+              if (name) break;
+            }
+            // Fallback to regex extraction if NER fails
+            if (!name) {
+              const patterns = [
+                /guide[s]?[,:\s]*([A-Z][a-z]+)/,
+                /our guide\s+([A-Z][a-z]+)/i,
+                /guide\s+was\s+([A-Z][a-z]+)/i
+              ];
+              for (const reg of patterns) {
+                const m = reg.exec(text);
+                if (m && !stopwords.has(m[1].toLowerCase())) {
+                  name = m[1];
+                  break;
+                }
+              }
+            }
+            return name ? { text, guide: name } : null;
           }).filter(x => x);
 
-          // 4. Fuzzy-cluster spelling variants
+          // fuzzy-cluster spelling variants
           const counts = {};
           entries.forEach(x => counts[x.guide] = (counts[x.guide]||0) + 1);
           const names = Object.keys(counts).sort();
@@ -89,7 +116,7 @@
           });
           entries.forEach(x => x.canonical = labels[x.guide]);
 
-          // 5. Aggregate and sort by review count descending
+          // aggregate and sort by review count descending
           const agg = {};
           entries.forEach(x => {
             const c = x.canonical;
@@ -99,7 +126,7 @@
           });
           const sorted = Object.entries(agg).sort((a,b) => b[1].count - a[1].count);
 
-          // 6. Generate highlights
+          // generate highlights
           const adjectives = [
             'knowledgeable','excellent','interesting','informative','friendly','amazing',
             'fantastic','detailed','passionate','enthusiastic','attentive','professional',
@@ -114,7 +141,7 @@
             else g.highlights = g.reviews[0].split('. ')[0] + '.';
           });
 
-          // 7. Render table
+          // render table
           const out = document.getElementById('output');
           out.innerHTML = '';
           const tbl = document.createElement('table');
@@ -123,22 +150,17 @@
           tbl.appendChild(hdr);
           sorted.forEach(([guide,g]) => {
             const tr=document.createElement('tr');
-            // Guide
             const tdGuide=document.createElement('td'); tdGuide.textContent=guide; tr.appendChild(tdGuide);
-            // Count
             const tdCount=document.createElement('td'); tdCount.textContent=g.count; tr.appendChild(tdCount);
-            // Highlights
             const tdHigh=document.createElement('td'); tdHigh.textContent=g.highlights; tr.appendChild(tdHigh);
-            // Reviews as bullets
-            const tdRev=document.createElement('td');
-            const ul=document.createElement('ul');
+            const tdRev=document.createElement('td'); const ul=document.createElement('ul');
             g.reviews.forEach(rv=>{ const li=document.createElement('li'); li.textContent=rv; ul.appendChild(li); });
             tdRev.appendChild(ul); tr.appendChild(tdRev);
             tbl.appendChild(tr);
           });
           out.appendChild(tbl);
 
-          // Download CSV
+          // download CSV
           const rows = [['Guide','Review Count','Highlights','Reviews']];
           sorted.forEach(([guide,g])=> rows.push([guide,g.count,g.highlights,g.reviews.join(' | ')]));
           const csv = Papa.unparse(rows);
