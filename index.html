@@ -46,7 +46,6 @@
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
   <script src="https://unpkg.com/compromise@13.11.3/builds/compromise.min.js"></script>
 
-  <!-- updated script -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       const fileInput      = document.getElementById('fileInput');
@@ -72,6 +71,14 @@
         'not','all','just','do','does','did','had','he','she','we','our','us','me',
         'his','her','them','great','excellent','local','amazing','tour','super','competent','awesome','tours','interesting'
       ]);
+
+      function normalizeName(raw) {
+        return raw
+          .replace(/^(?:Mr|Mrs|Ms|Dr)\.?\s*/i, '') // strip honorific
+          .replace(/[^A-Za-z-].*$/, '')            // drop punctuation after
+          .trim()
+          .split(/\s+/)[0];                       // first token
+      }
 
       function renderTable(entries) {
         outputDiv.innerHTML = '';
@@ -125,9 +132,7 @@
 
         // CSV download
         const rows = [['Guide','Review Count','Highlights','Reviews']];
-        sorted.forEach(o =>
-          rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')])
-        );
+        sorted.forEach(o => rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')]));
         const csv = Papa.unparse(rows);
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url  = URL.createObjectURL(blob);
@@ -154,7 +159,6 @@
           complete: ({ data, meta }) => {
             const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
 
-            // filter out too-short or truly negative reviews
             let subs = data.filter(r => {
               const txt = (r[revCol]||'').trim();
               if (txt.split(/\s+/).length < minWords) return false;
@@ -162,62 +166,59 @@
               return true;
             });
 
-            // always include header row as a “dummy review”
-            subs.unshift({ [revCol]: revCol });
+            subs.unshift({ [revCol]: revCol }); // include header row
 
-            // group reviews by name
             const groups = {};
             subs.forEach(r => {
               const text = r[revCol];
-              let people = nlp(text).people().out('array');
+              let name;
 
-              // ── NEW FALLBACK #1 ──
-              // anywhere “Mr. Alberto” or “Mrs Smith” appears
-              if (!people.length) {
+              // try compromise
+              const people = nlp(text).people().out('array');
+              if (people.length) {
+                name = normalizeName(people[0]);
+              }
+
+              // fallback A: “Mr Alberto” or “Dr Smith”
+              if (!name) {
                 const m = text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Z][a-z]+)/);
-                if (m) people = [m[1]];
+                if (m) name = normalizeName(m[0]);
               }
-              // fallback #2: “Name our tour guide…”
-              if (!people.length) {
+
+              // fallback B: “Name our tour guide…”
+              if (!name) {
                 const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
-                if (m) people = [m[1]];
-              }
-              // fallback #3: “…guide Name”
-              if (!people.length) {
-                const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+(?:Mr\.?\s*)?([A-Z][a-z]+)/);
-                if (m) people = [m[1]];
+                if (m) name = normalizeName(m[1]);
               }
 
-              if (!people.length) return;
-              // strip any remaining prefix titles, then trim
-              let name = people[0]
-                .replace(/^(?:Mr|Mrs|Ms|Dr)\.?\s*/, '')
-                .trim()
-                .split(/\s+/)[0];
+              // fallback C: “…guide Name”
+              if (!name) {
+                const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Z][a-z]+)/);
+                if (m) name = normalizeName(m[1]);
+              }
 
+              if (!name) return;
+              // validate
               if (!/^[A-Z][a-z]+(?:-[A-Z][a-z]+)?$/.test(name)) return;
-              if (stopwords.has(name.toLowerCase()))      return;
+              if (stopwords.has(name.toLowerCase())) return;
 
               (groups[name] || (groups[name] = [])).push(text);
             });
 
-            // cluster similar names
+            // cluster & build entries
             const counts = {};
             Object.keys(groups).forEach(n => counts[n] = groups[n].length);
             const clusters = [];
-            Object.keys(counts).sort().forEach(name => {
+            Object.keys(counts).sort().forEach(n => {
               let placed = false;
               for (const c of clusters) {
-                if (sim(name.toLowerCase(), c[0].toLowerCase()) >= threshold) {
-                  c.push(name);
-                  placed = true;
-                  break;
+                if (sim(n.toLowerCase(), c[0].toLowerCase()) >= threshold) {
+                  c.push(n); placed = true; break;
                 }
               }
-              if (!placed) clusters.push([name]);
+              if (!placed) clusters.push([n]);
             });
 
-            // build final entries
             currentEntries = clusters.map(cluster => {
               const canon   = cluster.reduce((a,b) => counts[a]>=counts[b]?a:b);
               const reviews = cluster.flatMap(n => groups[n]||[]);
@@ -237,12 +238,9 @@
         });
       }
 
-      // wire controls
       fileInput.addEventListener('change', e => processFile(e.target.files[0]));
       [minWordsInput, thresholdInput].forEach(el =>
-        el.addEventListener('change', () => {
-          if (fileInput.files[0]) processFile(fileInput.files[0]);
-        })
+        el.addEventListener('change', () => fileInput.files[0] && processFile(fileInput.files[0]))
       );
     });
   </script>
