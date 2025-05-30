@@ -35,12 +35,15 @@
       return m / len;
     }
 
-    // stopwords: common English words to exclude as names
+    // Updated stopwords: common English words & adjectives to exclude as names
     const stopwords = new Set([
       'the','a','and','but','then','nice','good','what','how','i','it','is','was','were','are',
       'to','of','in','that','this','for','with','you','on','as','they','be','at','or','an','by',
       'have','from','my','your','their','if','so','no','not','all','just','do','does','did','had',
-      'he','she','we','our','us','me','his','her','them'
+      'he','she','we','our','us','me','his','her','them',
+      // adjectives and words causing issues
+      'amazing','repeating','made','helpful','great','inspiring','able','changed','because','would',
+      'spectacular','lame','didn','t','six','liked','told','wrong','very','excellent'
     ]);
 
     document.getElementById('fileInput').addEventListener('change', e => {
@@ -53,16 +56,12 @@
         header: true,
         skipEmptyLines: true,
         complete: ({ data, meta }) => {
-          // 1. identify review column
           const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
-
-          // 2. filter substantive reviews
           const subs = data.filter(r => {
             const t = (r[revCol] || '').trim();
             return t.split(/\s+/).length > minWords;
           });
 
-          // 3. extract names by regex, filter stopwords, require length>2
           const entries = subs.map(r => {
             const text = r[revCol];
             let name = null;
@@ -81,7 +80,6 @@
             return { text, guide: name };
           }).filter(x => x);
 
-          // 4. fuzzy-cluster spelling variants
           const counts = {};
           entries.forEach(x => counts[x.guide] = (counts[x.guide] || 0) + 1);
           const names = Object.keys(counts).sort();
@@ -102,7 +100,6 @@
           });
           entries.forEach(x => x.canonical = labels[x.guide]);
 
-          // 5. aggregate
           const agg = {};
           entries.forEach(x => {
             const c = x.canonical;
@@ -111,7 +108,6 @@
             agg[c].count++;
           });
 
-          // 6. highlights: extended adjective list
           const adjectives = [
             'knowledgeable','excellent','interesting','informative','friendly','amazing',
             'fantastic','detailed','passionate','enthusiastic','attentive','professional',
@@ -126,7 +122,6 @@
             else g.highlights = g.reviews[0].split('. ')[0] + '.';
           });
 
-          // 7. render table
           const out = document.getElementById('output');
           out.innerHTML = '';
           const tbl = document.createElement('table');
@@ -146,7 +141,6 @@
           });
           out.appendChild(tbl);
 
-          // 8. download
           const rows = [['Guide','Review Count','Highlights','Reviews']];
           Object.entries(agg).forEach(([guide,g]) => rows.push([guide,g.count,g.highlights,g.reviews.join(' | ')]));
           const csv = Papa.unparse(rows);
