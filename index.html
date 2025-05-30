@@ -28,7 +28,10 @@
 
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
   <script src="https://unpkg.com/compromise@13.11.3/builds/compromise.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sentiment@5.0.2/build/sentiment.min.js"></script>
   <script>
+    // sentiment analyzer
+    const sentimentAnalyzer = new Sentiment();
     // Compute basic string similarity
     function sim(a, b) {
       if (a === b) return 1;
@@ -38,7 +41,7 @@
       return m / len;
     }
 
-    // Common words to exclude
+    // Common stopwords to exclude
     const stopwords = new Set([
       'the','a','and','but','then','nice','good','what','how','i','it','is','was','were','are',
       'to','of','in','that','this','for','with','you','on','as','they','be','at','or','an','by',
@@ -56,21 +59,19 @@
         header: true,
         skipEmptyLines: true,
         complete: ({ data, meta }) => {
-          // Identify review column
           const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
+          // filter by word count
+          let subs = data.filter(r => (r[revCol]||'').trim().split(/\s+/).length > minWords);
+          // filter negative reviews by sentiment
+          subs = subs.filter(r => sentimentAnalyzer.analyze(r[revCol] || '').score >= 0);
 
-          // Filter substantive reviews
-          const subs = data.filter(r => (r[revCol] || '').trim().split(/\s+/).length > minWords);
-
-          // Extract guide names using NER only
+          // extract guide names via NER only
           const entries = subs.map(r => {
             const text = r[revCol];
             const doc = nlp(text);
             const people = doc.people().out('array');
-            if (people.length === 0) return null;
-            // Only take the first PERSON entity
+            if (!people.length) return null;
             const fullName = people[0];
-            // First token must be capitalized and non-stopword
             const firstToken = fullName.split(/\s+/)[0];
             if (/^[A-Z][a-z]+$/.test(firstToken) && !stopwords.has(firstToken.toLowerCase())) {
               return { text, guide: firstToken };
@@ -78,30 +79,28 @@
             return null;
           }).filter(x => x);
 
-          // Group spelling variants
+          // cluster spelling variants
           const counts = {};
-          entries.forEach(x => counts[x.guide] = (counts[x.guide] || 0) + 1);
+          entries.forEach(x => counts[x.guide] = (counts[x.guide]||0) + 1);
           const uniqueNames = Object.keys(counts);
           const clusters = [];
           const labels = {};
           uniqueNames.forEach(name => {
             let placed = false;
-            for (const cluster of clusters) {
-              if (sim(name.toLowerCase(), cluster[0].toLowerCase()) >= threshold) {
-                cluster.push(name);
-                placed = true;
-                break;
+            for (const c of clusters) {
+              if (sim(name.toLowerCase(), c[0].toLowerCase()) >= threshold) {
+                c.push(name); placed = true; break;
               }
             }
             if (!placed) clusters.push([name]);
           });
           clusters.forEach(cluster => {
-            const canonical = cluster.reduce((a, b) => counts[a] >= counts[b] ? a : b);
-            cluster.forEach(n => labels[n] = canonical);
+            const canon = cluster.reduce((a,b) => counts[a] >= counts[b] ? a : b);
+            cluster.forEach(n => labels[n] = canon);
           });
           entries.forEach(x => x.canonical = labels[x.guide]);
 
-          // Aggregate and sort by review count
+          // aggregate & sort descending
           const agg = {};
           entries.forEach(x => {
             const c = x.canonical;
@@ -109,16 +108,16 @@
             agg[c].reviews.push(x.text);
             agg[c].count++;
           });
-          const sorted = Object.entries(agg).sort((a, b) => b[1].count - a[1].count);
+          const sorted = Object.entries(agg).sort((a,b) => b[1].count - a[1].count);
 
-          // Generate highlights
+          // generate highlights
           const adjectives = [
             'knowledgeable','excellent','interesting','informative','friendly','amazing',
             'fantastic','detailed','passionate','enthusiastic','attentive','professional',
             'engaging','dynamic','comprehensive','thorough','insightful','articulate',
             'patient','personable'
           ];
-          sorted.forEach(([guide, obj]) => {
+          sorted.forEach(([guide,obj]) => {
             const txt = obj.reviews.join(' ').toLowerCase();
             const found = adjectives.filter(a => txt.includes(a));
             if (found.length > 1) obj.highlights = 'Known for being ' + found.slice(0, -1).join(', ') + ' and ' + found.slice(-1) + '.';
@@ -126,41 +125,32 @@
             else obj.highlights = obj.reviews[0].split('. ')[0] + '.';
           });
 
-          // Render table
-          const out = document.getElementById('output');
-          out.innerHTML = '';
+          // render table
+          const out = document.getElementById('output'); out.innerHTML = '';
           const table = document.createElement('table');
           const header = document.createElement('tr');
-          ['Guide', 'Review Count', 'Highlights', 'Reviews'].forEach(h => {
-            const th = document.createElement('th'); th.textContent = h; header.appendChild(th);
-          });
+          ['Guide','Review Count','Highlights','Reviews'].forEach(h => { const th=document.createElement('th'); th.textContent=h; header.appendChild(th); });
           table.appendChild(header);
-          sorted.forEach(([guide, obj]) => {
+          sorted.forEach(([guide,obj]) => {
             const tr = document.createElement('tr');
-            ['guide', 'count', 'highlights', 'reviews'].forEach((key, i) => {
-              const td = document.createElement('td');
-              if (key === 'reviews') {
-                const ul = document.createElement('ul');
-                obj[key].forEach(text => { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); });
-                td.appendChild(ul);
-              } else if (key === 'count') td.textContent = obj.count;
-              else if (key === 'highlights') td.textContent = obj.highlights;
-              else td.textContent = guide;
-              tr.appendChild(td);
-            });
+            const tdGuide = document.createElement('td'); tdGuide.textContent=guide; tr.appendChild(tdGuide);
+            const tdCount = document.createElement('td'); tdCount.textContent=obj.count; tr.appendChild(tdCount);
+            const tdHigh = document.createElement('td'); tdHigh.textContent=obj.highlights; tr.appendChild(tdHigh);
+            const tdRev = document.createElement('td'); const ul = document.createElement('ul');
+            obj.reviews.forEach(rv=>{ const li=document.createElement('li'); li.textContent=rv; ul.appendChild(li); });
+            tdRev.appendChild(ul); tr.appendChild(tdRev);
             table.appendChild(tr);
           });
           out.appendChild(table);
 
-          // Prepare CSV download
+          // download CSV
           const rows = [['Guide','Review Count','Highlights','Reviews']];
-          sorted.forEach(([guide, obj]) => rows.push([guide, obj.count, obj.highlights, obj.reviews.join(' | ')]));
+          sorted.forEach(([guide,obj])=> rows.push([guide,obj.count,obj.highlights,obj.reviews.join(' | ')]));
           const csv = Papa.unparse(rows);
-          const blob = new Blob([csv], { type: 'text/csv' });
+          const blob = new Blob([csv],{type:'text/csv'});
           const url = URL.createObjectURL(blob);
-          const btn = document.getElementById('downloadBtn');
-          btn.style.display = 'inline-block';
-          btn.onclick = () => { const a = document.createElement('a'); a.href = url; a.download = 'guide_review_summary.csv'; a.click(); };
+          const btn = document.getElementById('downloadBtn'); btn.style.display='inline-block';
+          btn.onclick = ()=>{ const a=document.createElement('a'); a.href=url; a.download='guide_review_summary.csv'; a.click(); };
         }
       });
     });
