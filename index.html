@@ -21,8 +21,6 @@
 
   <!-- papaparse for CSV parsing -->
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
-  <!-- compromise.js for NER-based name extraction -->
-  <script src="https://unpkg.com/compromise@latest/builds/compromise.min.js"></script>
   <script>
     // Sequence matcher for fuzzy clustering
     function sim(a, b) {
@@ -31,6 +29,13 @@
       for (let i = 0; i < min; i++) if (a[i] === b[i]) m++;
       return m / min;
     }
+
+    // Common English words to ignore as guide names
+    const stopwords = new Set([
+      'The','A','And','But','Then','Nice','Our','This','That','They','There','Here',
+      'Have','Will','Were','Was','Are','Is','It','For','With','Also','Such','Their',
+      'Your','My','Very','Good','Ms','Mr','Mrs'
+    ]);
 
     document.getElementById('fileInput').addEventListener('change', e => {
       const file = e.target.files[0];
@@ -48,14 +53,20 @@
             return t.split(/\s+/).length > 5;
           });
 
-          // 3. Extract guide names via NER (compromise.js)
-          let entries = subs.map(r => {
+          // 3. Extract guide names using regex and filter stopwords
+          const entries = subs.map(r => {
             const text = r[revCol];
-            const doc = nlp(text);
-            const people = doc.people().out('array');
-            if (!people.length) return null;
-            const full = people[0];
-            const name = full.split(' ')[0];
+            let name = null;
+            [
+              /guide[s]?[,:\s]*([A-Z][a-z]+)/,
+              /our guide\s+([A-Z][a-z]+)/i,
+              /guide\s+was\s+([A-Z][a-z]+)/i
+            ].some(reg => {
+              const m = reg.exec(text);
+              if (m) { name = m[1]; return true; }
+              return false;
+            });
+            if (!name || stopwords.has(name)) return null;
             return { text, guide: name };
           }).filter(x => x);
 
@@ -66,11 +77,11 @@
           const clusters = [];
           const labels = {};
           names.forEach(n => {
-            let found = false;
+            let placed = false;
             for (const c of clusters) {
-              if (sim(n.toLowerCase(), c[0].toLowerCase()) >= 0.8) { c.push(n); found = true; break; }
+              if (sim(n.toLowerCase(), c[0].toLowerCase()) >= 0.8) { c.push(n); placed = true; break; }
             }
-            if (!found) clusters.push([n]);
+            if (!placed) clusters.push([n]);
           });
           clusters.forEach(cluster => {
             const canon = cluster.reduce((a, b) => counts[a] >= counts[b] ? a : b);
@@ -89,10 +100,8 @@
 
           // 6. Generate highlights with extended adjectives
           const adjs = [
-            'knowledgeable','friendly','helpful','terrific','phenomenal','amazing',
-            'excellent','great','smooth','informative','engaging','attentive',
-            'beautiful','breathtaking','dynamic','encyclopedic','entertaining',
-            'enthusiastic','exhaustive','exciting','expert','patient','passionate'
+            'knowledgeable','excellent','interesting','informative','friendly','amazing',
+            'fantastic','detailed','passionate','enthusiastic','attentive'
           ];
           Object.values(agg).forEach(g => {
             const txt = g.reviews.join(' ').toLowerCase();
