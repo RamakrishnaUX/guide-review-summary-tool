@@ -75,9 +75,9 @@
 
       function renderTable(entries) {
         outputDiv.innerHTML = '';
-        const sorted = entries
-          .slice()
-          .sort((a, b) => sortDesc ? b.count - a.count : a.count - b.count);
+        const sorted = entries.slice().sort((a, b) =>
+          sortDesc ? b.count - a.count : a.count - b.count
+        );
 
         const table = document.createElement('table');
         const headerRow = document.createElement('tr');
@@ -120,9 +120,11 @@
           table.appendChild(tr);
         });
 
-        // prepare CSV download
+        // CSV download setup
         const rows = [['Guide','Review Count','Highlights','Reviews']];
-        sorted.forEach(o => rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')]));
+        sorted.forEach(o =>
+          rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')])
+        );
         const csv = Papa.unparse(rows);
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url  = URL.createObjectURL(blob);
@@ -149,7 +151,7 @@
           complete: ({ data, meta }) => {
             const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
 
-            // filter reviews
+            // filter out too-short or truly negative reviews
             let subs = data.filter(r => {
               const txt = (r[revCol]||'').trim();
               if (txt.split(/\s+/).length < minWords) return false;
@@ -157,30 +159,37 @@
               return true;
             });
 
-            // include header row once
+            // include the header itself once
             subs.unshift({ [revCol]: revCol });
 
-            // group by name
+            // group reviews by extracted name
             const groups = {};
             subs.forEach(r => {
               const text = r[revCol];
-              let people = nlp(text).people().out('array');
+              let people  = nlp(text).people().out('array');
 
-              // fallback A: "Name our tour guide..."
+              // fallback A: “Name our tour guide…”
               if (!people.length) {
                 const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
                 if (m) people = [m[1]];
               }
-              // fallback B: "...guide Name"
+              // fallback B: “…guide Name”
               if (!people.length) {
                 const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+(?:Mr\.?\s*)?([A-Z][a-z]+)/);
                 if (m) people = [m[1]];
               }
 
               if (!people.length) return;
-              let name = people[0].replace(/^(Mr|Ms|Mrs|Dr)\.?/, '').split(/\s+/)[0];
+              // strip titles properly, then trim before splitting
+              let name = people[0]
+                .replace(/^(?:Mr|Ms|Mrs|Dr)\.?\s*/, '')
+                .trim()
+                .split(/\s+/)[0];
+
+              // validate and skip stopwords
               if (!/^[A-Z][a-z]+(?:-[A-Z][a-z]+)?$/.test(name)) return;
-              if (stopwords.has(name.toLowerCase())) return;
+              if (stopwords.has(name.toLowerCase()))      return;
+
               (groups[name] || (groups[name] = [])).push(text);
             });
 
@@ -200,7 +209,7 @@
               if (!placed) clusters.push([name]);
             });
 
-            // build output entries
+            // build entries array
             currentEntries = clusters.map(cluster => {
               const canon   = cluster.reduce((a, b) => counts[a] >= counts[b] ? a : b);
               const reviews = cluster.flatMap(n => groups[n] || []);
@@ -220,7 +229,7 @@
         });
       }
 
-      // wire up
+      // wire up controls
       fileInput.addEventListener('change', e => processFile(e.target.files[0]));
       [minWordsInput, thresholdInput].forEach(el =>
         el.addEventListener('change', () => {
