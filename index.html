@@ -42,42 +42,59 @@
   </div>
   <div id="output"></div>
 
+  <!-- dependencies -->
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
   <script src="https://unpkg.com/compromise@13.11.3/builds/compromise.min.js"></script>
+
+  <!-- updated script -->
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const fileInput = document.getElementById('fileInput');
-      const minWordsInput = document.getElementById('minWords');
-      const thresholdInput = document.getElementById('simThreshold');
-      const outputDiv = document.getElementById('output');
-      const downloadBtn = document.getElementById('downloadBtn');
-      let currentEntries = [];
-      let sortDesc = true;
+      const fileInput       = document.getElementById('fileInput');
+      const minWordsInput   = document.getElementById('minWords');
+      const thresholdInput  = document.getElementById('simThreshold');
+      const outputDiv       = document.getElementById('output');
+      const downloadBtn     = document.getElementById('downloadBtn');
+      let currentEntries    = [];
+      let sortDesc          = true;
 
       function sim(a, b) {
         if (a === b) return 1;
-        let m = 0;
-        const len = Math.min(a.length, b.length);
+        let m = 0, len = Math.min(a.length, b.length);
         for (let i = 0; i < len; i++) if (a[i] === b[i]) m++;
         return m / len;
       }
 
-      const stopwords = new Set(['the','a','and','but','then','nice','good','what','how','i','it','is','was','were','are','to','of','in','that','this','for','with','you','on','as','they','be','at','or','an','by','have','from','my','your','their','if','so','no','not','all','just','do','does','did','had','he','she','we','our','us','me','his','her','them']);
-      const negativeWords = ['bad','poor','terrible','horrible','hate','worst','awful','not','never'];
+      const negRegex = /\b(?:bad|poor|terrible|horrible|hate|worst|awful)\b/i;
+      const stopwords = new Set([
+        'the','a','and','but','then','nice','good','what','how','i','it','is','was',
+        'were','are','to','of','in','that','this','for','with','you','on','as','they',
+        'be','at','or','an','by','have','from','my','your','their','if','so','no',
+        'not','all','just','do','does','did','had','he','she','we','our','us','me',
+        'his','her','them'
+      ]);
 
       function renderTable(entries) {
         outputDiv.innerHTML = '';
-        const sorted = entries.slice().sort((a, b) => sortDesc ? b.count - a.count : a.count - b.count);
+        const sorted = entries
+          .slice()
+          .sort((a, b) => sortDesc ? b.count - a.count : a.count - b.count);
+
         const table = document.createElement('table');
         const headerRow = document.createElement('tr');
         ['Guide','Review Count','Highlights','Reviews'].forEach(h => {
           const th = document.createElement('th');
           if (h === 'Review Count') {
-            const span = document.createElement('span'); span.className = 'header-content';
+            const span = document.createElement('span');
+            span.className = 'header-content';
             span.textContent = h;
-            const chevron = document.createElement('span'); chevron.className = 'chevron'; chevron.textContent = sortDesc ? '▼' : '▲';
+            const chevron = document.createElement('span');
+            chevron.className = 'chevron';
+            chevron.textContent = sortDesc ? '▼' : '▲';
             span.appendChild(chevron);
-            span.addEventListener('click', () => { sortDesc = !sortDesc; renderTable(currentEntries); });
+            span.addEventListener('click', () => {
+              sortDesc = !sortDesc;
+              renderTable(currentEntries);
+            });
             th.appendChild(span);
           } else {
             th.textContent = h;
@@ -86,25 +103,29 @@
         });
         table.appendChild(headerRow);
 
-        sorted.forEach(obj => {
+        sorted.forEach(o => {
           const tr = document.createElement('tr');
-          const tdG = document.createElement('td'); tdG.textContent = obj.guide;
-          const tdC = document.createElement('td'); tdC.textContent = obj.count;
-          const tdH = document.createElement('td'); tdH.textContent = obj.highlights;
+          const tdG = document.createElement('td'); tdG.textContent = o.guide;
+          const tdC = document.createElement('td'); tdC.textContent = o.count;
+          const tdH = document.createElement('td'); tdH.textContent = o.highlights;
           const tdR = document.createElement('td');
-          const ul = document.createElement('ul');
-          obj.reviews.forEach(rv => { const li = document.createElement('li'); li.textContent = rv; ul.appendChild(li); });
+          const ul  = document.createElement('ul');
+          o.reviews.forEach(rv => {
+            const li = document.createElement('li');
+            li.textContent = rv;
+            ul.appendChild(li);
+          });
           tdR.appendChild(ul);
           [tdG, tdC, tdH, tdR].forEach(td => tr.appendChild(td));
           table.appendChild(tr);
         });
 
-        // setup download
+        // prepare CSV download
         const rows = [['Guide','Review Count','Highlights','Reviews']];
         sorted.forEach(o => rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')]));
         const csv = Papa.unparse(rows);
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
+        const url  = URL.createObjectURL(blob);
         downloadBtn.style.display = 'inline-block';
         downloadBtn.onclick = () => {
           const a = document.createElement('a');
@@ -119,7 +140,7 @@
       }
 
       function processFile(file) {
-        const minWords = parseInt(minWordsInput.value, 10);
+        const minWords  = parseInt(minWordsInput.value, 10);
         const threshold = parseFloat(thresholdInput.value);
 
         Papa.parse(file, {
@@ -127,42 +148,67 @@
           skipEmptyLines: true,
           complete: ({ data, meta }) => {
             const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
-            const subs = data.filter(r => {
-              const txt = (r[revCol] || '').trim();
-              if (txt.split(/\s+/).length <= minWords) return false;
-              const lower = txt.toLowerCase();
-              return !negativeWords.some(w => lower.includes(w));
+
+            // filter reviews
+            let subs = data.filter(r => {
+              const txt = (r[revCol]||'').trim();
+              if (txt.split(/\s+/).length < minWords) return false;
+              if (negRegex.test(txt)) return false;
+              return true;
             });
 
+            // include header row once
+            subs.unshift({ [revCol]: revCol });
+
+            // group by name
             const groups = {};
             subs.forEach(r => {
               const text = r[revCol];
-              const people = nlp(text).people().out('array');
+              let people = nlp(text).people().out('array');
+
+              // fallback A: "Name our tour guide..."
+              if (!people.length) {
+                const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
+                if (m) people = [m[1]];
+              }
+              // fallback B: "...guide Name"
+              if (!people.length) {
+                const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+(?:Mr\.?\s*)?([A-Z][a-z]+)/);
+                if (m) people = [m[1]];
+              }
+
               if (!people.length) return;
-              const name = people[0].split(/\s+/)[0];
-              if (!/^[A-Z][a-z]+$/.test(name) || stopwords.has(name.toLowerCase())) return;
+              let name = people[0].replace(/^(Mr|Ms|Mrs|Dr)\.?/, '').split(/\s+/)[0];
+              if (!/^[A-Z][a-z]+(?:-[A-Z][a-z]+)?$/.test(name)) return;
+              if (stopwords.has(name.toLowerCase())) return;
               (groups[name] || (groups[name] = [])).push(text);
             });
 
-            const counts = {};
+            // cluster similar names
+            const counts   = {};
             Object.keys(groups).forEach(n => counts[n] = groups[n].length);
             const clusters = [];
             Object.keys(counts).sort().forEach(name => {
               let placed = false;
               for (const c of clusters) {
-                if (sim(name.toLowerCase(), c[0].toLowerCase()) >= threshold) { c.push(name); placed = true; break; }
+                if (sim(name.toLowerCase(), c[0].toLowerCase()) >= threshold) {
+                  c.push(name);
+                  placed = true;
+                  break;
+                }
               }
               if (!placed) clusters.push([name]);
             });
 
+            // build output entries
             currentEntries = clusters.map(cluster => {
-              const canon = cluster.reduce((a, b) => counts[a] >= counts[b] ? a : b);
+              const canon   = cluster.reduce((a, b) => counts[a] >= counts[b] ? a : b);
               const reviews = cluster.flatMap(n => groups[n] || []);
               const highlights = (() => {
                 const txt = reviews.join(' ').toLowerCase();
                 const adjs = ['knowledgeable','excellent','interesting','informative','friendly','amazing','fantastic','detailed','passionate','enthusiastic','attentive','professional','engaging','dynamic','comprehensive','thorough','insightful','articulate','patient','personable'];
                 const found = adjs.filter(a => txt.includes(a));
-                if (found.length > 1) return 'Known for being ' + found.slice(0, -1).join(', ') + ' and ' + found.slice(-1) + '.';
+                if (found.length > 1) return 'Known for being ' + found.slice(0,-1).join(', ') + ' and ' + found.slice(-1) + '.';
                 if (found.length === 1) return 'Known for being ' + found[0] + '.';
                 return reviews[0].split('. ')[0] + '.';
               })();
@@ -174,10 +220,13 @@
         });
       }
 
+      // wire up
       fileInput.addEventListener('change', e => processFile(e.target.files[0]));
-      [minWordsInput, thresholdInput].forEach(el => el.addEventListener('change', () => {
-        if (fileInput.files[0]) processFile(fileInput.files[0]);
-      }));
+      [minWordsInput, thresholdInput].forEach(el =>
+        el.addEventListener('change', () => {
+          if (fileInput.files[0]) processFile(fileInput.files[0]);
+        })
+      );
     });
   </script>
 </body>
