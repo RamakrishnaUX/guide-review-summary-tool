@@ -4,8 +4,24 @@
   <meta charset="UTF-8">
   <title>Guide Spotter</title>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 2rem; background: #f4f4f9; color: #333; }
-    h1 { margin-bottom: 1.5rem; color: #4a148c; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: #f4f4f9; color: #333; }
+    header {
+      background: #6a1b9a;
+      color: #fff;
+      padding: 2rem 1.5rem;
+      text-align: left;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+    header .subtitle {
+      margin-top: 0.5rem;
+      font-size: 1rem;
+      color: #e0d7ed;
+      line-height: 1.4;
+    }
+    .container { padding: 2rem 1.5rem; }
     .controls { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
     .controls label { font-size: 0.9rem; color: #555; display: flex; flex-direction: column; }
     .controls input[type="number"], .controls input[type="file"], .controls button {
@@ -27,24 +43,28 @@
   </style>
 </head>
 <body>
-  <h1>Guide Spotter</h1>
-<p class="subtitle">
-    Automatically extract and aggregate tour guide names from your customer reviews—so you can see
-    at a glance who’s getting the highest praise.
-  </p>
-  <div class="controls">
-    <label>Min words per review
-      <input type="number" id="minWords" value="5" min="1" step="1" />
-    </label>
-    <label>Similarity threshold
-      <input type="number" id="simThreshold" value="0.8" min="0" max="1" step="0.05" />
-    </label>
-    <label>Upload CSV
-      <input type="file" id="fileInput" accept=".csv" />
-    </label>
-    <button id="downloadBtn" style="display:none;">Download CSV</button>
+  <header>
+    <h1>Guide Spotter</h1>
+    <p class="subtitle">
+      Automatically extract and aggregate tour guide names from your customer reviews—so you can see at a glance who’s getting the highest praise.
+    </p>
+  </header>
+
+  <div class="container">
+    <div class="controls">
+      <label>Min words per review
+        <input type="number" id="minWords" value="5" min="1" step="1" />
+      </label>
+      <label>Similarity threshold
+        <input type="number" id="simThreshold" value="0.8" min="0" max="1" step="0.05" />
+      </label>
+      <label>Upload CSV
+        <input type="file" id="fileInput" accept=".csv" />
+      </label>
+      <button id="downloadBtn" style="display:none;">Download CSV</button>
+    </div>
+    <div id="output"></div>
   </div>
-  <div id="output"></div>
 
   <!-- dependencies -->
   <script src="https://unpkg.com/papaparse@5.3.2/papaparse.min.js"></script>
@@ -78,24 +98,24 @@
 
       function normalizeName(raw) {
         return raw
-          .replace(/^(?:Mr|Mrs|Ms|Dr)\.?\s*/i, '') // strip honorific
-          .replace(/[^A-Za-z-].*$/, '')            // drop punctuation after
+          .replace(/^(?:Mr|Mrs|Ms|Dr)\.?\s*/i, '')
+          .replace(/[^A-Za-z-].*$/, '')
           .trim()
-          .split(/\s+/)[0];                       // first token
+          .split(/\s+/)[0];
       }
 
       function renderTable(entries) {
         outputDiv.innerHTML = '';
-        const sorted = entries.slice().sort((a,b) =>
+        const sorted = entries.slice().sort((a, b) =>
           sortDesc ? b.count - a.count : a.count - b.count
         );
 
-        const table = document.createElement('table');
-        const headerRow = document.createElement('tr');
+        const table       = document.createElement('table');
+        const headerRow   = document.createElement('tr');
         ['Guide','Review Count','Highlights','Reviews'].forEach(h => {
           const th = document.createElement('th');
           if (h === 'Review Count') {
-            const span = document.createElement('span');
+            const span    = document.createElement('span');
             span.className = 'header-content';
             span.textContent = h;
             const chevron = document.createElement('span');
@@ -116,14 +136,12 @@
 
         sorted.forEach(o => {
           const tr = document.createElement('tr');
-          ['guide','count','highlights','reviews'].forEach((key,i) => {
+          ['guide','count','highlights','reviews'].forEach(key => {
             const td = document.createElement('td');
             if (key === 'reviews') {
               const ul = document.createElement('ul');
               o.reviews.forEach(rv => {
-                const li = document.createElement('li');
-                li.textContent = rv;
-                ul.appendChild(li);
+                const li = document.createElement('li'); li.textContent = rv; ul.appendChild(li);
               });
               td.appendChild(ul);
             } else {
@@ -134,21 +152,13 @@
           table.appendChild(tr);
         });
 
-        // CSV download
         const rows = [['Guide','Review Count','Highlights','Reviews']];
         sorted.forEach(o => rows.push([o.guide, o.count, o.highlights, o.reviews.join(' | ')]));
-        const csv = Papa.unparse(rows);
+        const csv  = Papa.unparse(rows);
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url  = URL.createObjectURL(blob);
         downloadBtn.style.display = 'inline-block';
-        downloadBtn.onclick = () => {
-          const a = document.createElement('a');
-          a.href = url;
-          a.setAttribute('download', 'guide_review_summary.csv');
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-        };
+        downloadBtn.onclick = () => { const a = document.createElement('a'); a.href = url; a.setAttribute('download', 'guide_review_summary.csv'); document.body.appendChild(a); a.click(); document.body.removeChild(a); };
 
         outputDiv.appendChild(table);
       }
@@ -157,95 +167,30 @@
         const minWords  = parseInt(minWordsInput.value, 10);
         const threshold = parseFloat(thresholdInput.value);
 
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: ({ data, meta }) => {
-            const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
-
-            let subs = data.filter(r => {
-              const txt = (r[revCol]||'').trim();
-              if (txt.split(/\s+/).length < minWords) return false;
-              if (negRegex.test(txt)) return false;
-              return true;
-            });
-
-            subs.unshift({ [revCol]: revCol }); // include header row
-
-            const groups = {};
-            subs.forEach(r => {
-              const text = r[revCol];
-              let name;
-
-              // try compromise
-              const people = nlp(text).people().out('array');
-              if (people.length) {
-                name = normalizeName(people[0]);
-              }
-
-              // fallback A: “Mr Alberto” or “Dr Smith”
-              if (!name) {
-                const m = text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Z][a-z]+)/);
-                if (m) name = normalizeName(m[0]);
-              }
-
-              // fallback B: “Name our tour guide…”
-              if (!name) {
-                const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/);
-                if (m) name = normalizeName(m[1]);
-              }
-
-              // fallback C: “…guide Name”
-              if (!name) {
-                const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Z][a-z]+)/);
-                if (m) name = normalizeName(m[1]);
-              }
-
-              if (!name) return;
-              // validate
-              if (!/^[A-Z][a-z]+(?:-[A-Z][a-z]+)?$/.test(name)) return;
-              if (stopwords.has(name.toLowerCase())) return;
-
-              (groups[name] || (groups[name] = [])).push(text);
-            });
-
-            // cluster & build entries
-            const counts = {};
-            Object.keys(groups).forEach(n => counts[n] = groups[n].length);
-            const clusters = [];
-            Object.keys(counts).sort().forEach(n => {
-              let placed = false;
-              for (const c of clusters) {
-                if (sim(n.toLowerCase(), c[0].toLowerCase()) >= threshold) {
-                  c.push(n); placed = true; break;
-                }
-              }
-              if (!placed) clusters.push([n]);
-            });
-
-            currentEntries = clusters.map(cluster => {
-              const canon   = cluster.reduce((a,b) => counts[a]>=counts[b]?a:b);
-              const reviews = cluster.flatMap(n => groups[n]||[]);
-              const highlights = (() => {
-                const txt = reviews.join(' ').toLowerCase();
-                const adjs = ['knowledgeable','interesting','informative','friendly','detailed','passionate','enthusiastic','attentive','professional','engaging','dynamic','comprehensive','thorough','insightful','articulate','patient','personable'];
-                const found = adjs.filter(a => txt.includes(a));
-                if (found.length>1) return 'Known for being '+found.slice(0,-1).join(', ')+' and '+found.slice(-1)+'.';
-                if (found.length===1) return 'Known for being '+found[0]+'.';
-                return reviews[0].split('. ')[0]+'.';
-              })();
-              return { guide: canon, reviews, count: reviews.length, highlights };
-            });
-
-            renderTable(currentEntries);
-          }
-        });
+        Papa.parse(file, { header: true, skipEmptyLines: true, complete: ({ data, meta }) => {
+          const revCol = meta.fields.find(f => /review/i.test(f)) || meta.fields[0];
+          let subs = data.filter(r => { const txt = (r[revCol]||'').trim(); return txt.split(/\s+/).length >= minWords && !negRegex.test(txt); });
+          subs.unshift({ [revCol]: revCol });
+          const groups = {};
+          subs.forEach(r => {
+            const text = r[revCol]; let name;
+            const people = nlp(text).people().out('array'); if (people.length) name = normalizeName(people[0]);
+            if (!name) { const m = text.match(/(?:Mr|Mrs|Ms|Dr)\.?\s*([A-Z][a-z]+)/); if (m) name = normalizeName(m[0]); }
+            if (!name) { const m = text.match(/([A-Z][a-z]+)\s+(?:our\s+)?(?:tour\s+)?guide\b/); if (m) name = normalizeName(m[1]); }
+            if (!name) { const m = text.match(/(?:our\s+)?(?:tour\s+)?guide\s+([A-Z][a-z]+)/); if (m) name = normalizeName(m[1]); }
+            if (!name || !/^[A-Z][a-z]+(?:-[A-Z][a-z]+)?$/.test(name) || stopwords.has(name.toLowerCase())) return;
+            (groups[name]||(groups[name]=[])).push(text);
+          });
+          const counts = {}; Object.keys(groups).forEach(n => counts[n]=groups[n].length);
+          const clusters = [];
+          Object.keys(counts).sort().forEach(n => { let placed=false; for(const c of clusters){ if(sim(n.toLowerCase(), c[0].toLowerCase())>=threshold){ c.push(n); placed=true; break; }} if(!placed) clusters.push([n]); });
+          currentEntries = clusters.map(cluster => { const canon=cluster.reduce((a,b)=>counts[a]>=counts[b]?a:b); const reviews=cluster.flatMap(n=>groups[n]||[]); const highlights=(()=>{const txt=reviews.join(' ').toLowerCase(); const adjs=['knowledgeable','interesting','informative','friendly','detailed','passionate','enthusiastic','attentive','professional','engaging','dynamic','comprehensive','thorough','insightful','articulate','patient','personable']; const found=adjs.filter(a=>txt.includes(a)); if(found.length>1) return 'Known for being '+found.slice(0,-1).join(', ')+' and '+found.slice(-1)+'.'; if(found.length===1) return 'Known for being '+found[0]+'.'; return reviews[0].split('. ')[0]+'.'; })(); return { guide: canon, reviews, count: reviews.length, highlights }; });
+          renderTable(currentEntries);
+        }});
       }
 
       fileInput.addEventListener('change', e => processFile(e.target.files[0]));
-      [minWordsInput, thresholdInput].forEach(el =>
-        el.addEventListener('change', () => fileInput.files[0] && processFile(fileInput.files[0]))
-      );
+      [minWordsInput, thresholdInput].forEach(el => el.addEventListener('change', () => fileInput.files[0] && processFile(fileInput.files[0])));
     });
   </script>
 </body>
